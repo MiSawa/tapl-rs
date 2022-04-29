@@ -4,26 +4,28 @@ use rustyline::{error::ReadlineError, Editor};
 
 mod ast;
 mod eval;
+mod lexer;
 
 lalrpop_mod!(
     #[allow(unused, clippy::all)]
-    parser,
-    "/tapl.rs"
+    parser
 );
 
 trait ResultExt<T> {
     fn staticalize(self) -> anyhow::Result<T>;
 }
-impl<T, E: std::error::Error> ResultExt<T> for std::result::Result<T, E> {
+impl<T, E: std::fmt::Debug> ResultExt<T> for std::result::Result<T, E> {
     fn staticalize(self) -> anyhow::Result<T> {
         self.map_err(|e| anyhow!("{e:?}"))
     }
 }
 
+fn parse(s: &str) -> Result<ast::Term> {
+    let lexer = lexer::Lexer::new(s);
+    parser::TermParser::new().parse(lexer).staticalize()
+}
+
 fn exec(input: String) -> Result<()> {
-    fn parse(s: &str) -> Result<ast::Term> {
-        parser::TermParser::new().parse(s).staticalize()
-    }
     if let Some(input) = input.strip_prefix("parse") {
         let term = parse(input)?;
         println!("{term:?}");
@@ -90,16 +92,19 @@ mod test {
 
     #[test]
     fn test_parse() {
-        assert_eq!(parser::TermParser::new().parse("true").unwrap(), True);
+        assert_eq!(parse("true").unwrap(), True);
         assert_eq!(
-            parser::TermParser::new()
-                .parse("if false then 0 else 1")
-                .unwrap(),
+            parse("if false then 0 else 1").unwrap(),
             IfThenElse {
                 cond: Rc::new(False),
                 positive: Rc::new(Zero),
                 negative: Rc::new(Succ(Rc::new(Zero))),
             }
         );
+    }
+
+    #[test]
+    fn test_space_required() {
+        assert!(parse("iftruethentrueelsefalse").is_err());
     }
 }

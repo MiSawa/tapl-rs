@@ -65,6 +65,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "byteorder"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
+
+[[package]]
 name = "cc"
 version = "1.0.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -190,6 +196,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
 
 [[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -270,6 +285,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6d265705249fe209280676d8f68887859fa42e1d34f342fc05bd47726a5e188"
 dependencies = [
  "regex",
+]
+
+[[package]]
+name = "lexgen"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8fd52abd364f752712c0e06022bece2eeafbc1b386e6794d03a348a906caab8"
+dependencies = [
+ "fxhash",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "lexgen_util"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a7234c237153c1ecb09f2467a78b1034f473d4dc3c6d0a056a151d299296aff"
+dependencies = [
+ "unicode-width",
 ]
 
 [[package]]
@@ -570,6 +606,8 @@ dependencies = [
  "anyhow",
  "lalrpop",
  "lalrpop-util",
+ "lexgen",
+ "lexgen_util",
  "rustyline",
  "thiserror",
 ]

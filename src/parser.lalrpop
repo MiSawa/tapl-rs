@@ -1,0 +1,43 @@
+use std::{rc::Rc, str::FromStr};
+
+use lalrpop_util::ParseError;
+
+use crate::{ast::Term, lexer::{Loc, LexerError, Token}};
+
+grammar;
+
+Rc<T>: Rc<T> = <T> => Rc::new(<>);
+
+Num: Term = {
+    Nat => (0..<>).fold(Term::Zero, |v, _| Term::Succ(Rc::new(v)))
+}
+
+pub Term: Term = {
+    "true" => Term::True,
+    "false" => Term::False,
+    "if" <cond: Rc<Term>> "then" <positive: Rc<Term>> "else" <negative: Rc<Term>> =>
+        Term::IfThenElse { <> },
+    <Num>,
+    "succ" "(" <Rc<Term>> ")" => Term::Succ(<>),
+    "pred" "(" <Rc<Term>> ")" => Term::Pred(<>),
+    "iszero" "(" <Rc<Term>> ")" => Term::IsZero(<>),
+};
+
+extern {
+    type Location = Loc;
+    type Error = LexerError;
+
+    enum Token {
+        "(" => Token::LParen,
+        ")" => Token::RParen,
+        "true" => Token::True,
+        "false" => Token::False,
+        "if" => Token::If,
+        "then" => Token::Then,
+        "else" => Token::Else,
+        "succ" => Token::Succ,
+        "pred" => Token::Pred,
+        "iszero" => Token::IsZero,
+        Nat => Token::Nat(<u32>),
+    }
+}
