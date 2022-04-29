@@ -1,4 +1,6 @@
+use anyhow::{bail, Result};
 use lalrpop_util::lalrpop_mod;
+use rustyline::{error::ReadlineError, Editor};
 
 mod ast;
 
@@ -8,8 +10,32 @@ lalrpop_mod!(
     "/tapl.rs"
 );
 
-fn main() {
-    println!("Hello, world!");
+fn main() -> Result<()> {
+    let mut editor = Editor::<()>::new();
+    editor.load_history("history.txt").ok();
+    loop {
+        match editor.readline(">> ") {
+            Ok(line) => {
+                editor.add_history_entry(line.as_str());
+                match parser::TermParser::new().parse(&line) {
+                    Ok(term) => println!("{term:?}"),
+                    Err(e) => eprintln!("Error: {e:?}"),
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("Bye!");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("Bye!");
+                break;
+            }
+            Err(e) => {
+                bail!(e);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
