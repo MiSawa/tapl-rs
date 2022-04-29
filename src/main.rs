@@ -1,14 +1,43 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
 mod ast;
+mod eval;
 
 lalrpop_mod!(
     #[allow(unused, clippy::all)]
     parser,
     "/tapl.rs"
 );
+
+trait ResultExt<T> {
+    fn staticalize(self) -> anyhow::Result<T>;
+}
+impl<T, E: std::error::Error> ResultExt<T> for std::result::Result<T, E> {
+    fn staticalize(self) -> anyhow::Result<T> {
+        self.map_err(|e| anyhow!("{e:?}"))
+    }
+}
+
+fn exec(input: String) -> Result<()> {
+    fn parse(s: &str) -> Result<ast::Term> {
+        parser::TermParser::new().parse(s).staticalize()
+    }
+    if let Some(input) = input.strip_prefix("parse") {
+        let term = parse(input)?;
+        println!("{term:?}");
+    } else if let Some(input) = input.strip_prefix("reduce") {
+        let term = parse(input)?;
+        let reduced = eval::reduce(term.into());
+        println!("{reduced:?}");
+    } else if let Some(input) = input.strip_prefix("eval") {
+        let term = parse(input)?;
+        let evaluated = eval::eval(term.into());
+        println!("{evaluated:?}");
+    }
+    Ok(())
+}
 
 fn main() -> Result<()> {
     let mut editor = Editor::<()>::new();
@@ -33,9 +62,8 @@ fn main() -> Result<()> {
                     line
                 };
                 editor.add_history_entry(input.as_str());
-                match parser::TermParser::new().parse(&input) {
-                    Ok(term) => println!("{term:?}"),
-                    Err(e) => eprintln!("Error: {e:?}"),
+                if let Err(e) = exec(input) {
+                    eprintln!("Error: {e:?}")
                 }
             }
             Err(ReadlineError::Interrupted) => {

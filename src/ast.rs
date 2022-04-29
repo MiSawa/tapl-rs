@@ -1,16 +1,18 @@
 use std::rc::Rc;
 
+pub type TermRef = Rc<Term>;
+
 #[derive(PartialEq, Eq, Debug)]
 pub enum Term {
     True,
     False,
     Zero,
     IfThenElse {
-        cond: Rc<Term>,
-        positive: Rc<Term>,
-        negative: Rc<Term>,
+        cond: TermRef,
+        positive: TermRef,
+        negative: TermRef,
     },
-    Succ(Rc<Term>),
-    Pred(Rc<Term>),
-    IsZero(Rc<Term>),
+    Succ(TermRef),
+    Pred(TermRef),
+    IsZero(TermRef),
 }
