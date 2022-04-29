@@ -40,12 +40,56 @@ pub fn reduce(term: TermRef) -> Option<TermRef> {
     })
 }
 
-pub fn eval(mut term: TermRef) -> TermRef {
+fn eval_small(mut term: TermRef) -> TermRef {
     while let Some(next) = reduce(term.clone()) {
         eprintln!("{next:?}");
         term = next
     }
     term
+}
+
+fn eval_big(term: TermRef) -> Option<TermRef> {
+    use Term::*;
+    Some(match term.as_ref() {
+        True | False | Zero => term.clone(),
+        IfThenElse {
+            cond,
+            positive,
+            negative,
+        } => match eval_big(cond.clone())?.as_ref() {
+            True => eval_big(positive.clone())?,
+            False => eval_big(negative.clone())?,
+            _ => return None,
+        },
+        Succ(t) => {
+            let v = eval_big(t.clone())?;
+            is_nat_value(&v).then(|| Succ(v.clone()).into())?
+        }
+        Pred(t) => {
+            let v = eval_big(t.clone())?;
+            match v.as_ref() {
+                Zero => Zero.into(),
+                Succ(v) if is_nat_value(v) => v.clone().into(),
+                _ => return None,
+            }
+        }
+        IsZero(t) => {
+            let v = eval_big(t.clone())?;
+            match v.as_ref() {
+                Zero => True.into(),
+                Succ(v) if is_nat_value(v) => False.into(),
+                _ => return None,
+            }
+        }
+    })
+}
+
+pub fn eval(term: TermRef) -> TermRef {
+    let a = eval_small(term.clone());
+    if let Some(b) = eval_big(term.clone()) {
+        assert_eq!(a, b);
+    }
+    a
 }
 
 #[cfg(test)]
