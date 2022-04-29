@@ -1,0 +1,29 @@
+use std::{rc::Rc, str::FromStr};
+
+use lalrpop_util::ParseError;
+
+use crate::ast::Term;
+
+grammar;
+
+Rc<T>: Rc<T> = <T> => Rc::new(<>);
+
+Num: Term = {
+    r"[0-9]+" =>? i32::from_str(<>)
+        .map_err(|_| ParseError::User {
+            error: "number is too big"
+        })
+        .map(|n| (0..n).fold(Term::Zero, |v, _| Term::Succ(Rc::new(v))))
+}
+
+pub Term: Term = {
+    "true" => Term::True,
+    "false" => Term::False,
+    "if" <cond: Rc<Term>> "then" <positive: Rc<Term>> "else" <negative: Rc<Term>> =>
+        Term::IfThenElse { <> },
+    <Num>,
+    "succ" "(" <Rc<Term>> ")" => Term::Succ(<>),
+    "pred" "(" <Rc<Term>> ")" => Term::Pred(<>),
+    "iszero" "(" <Rc<Term>> ")" => Term::IsZero(<>),
+};
+
