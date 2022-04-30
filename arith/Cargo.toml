@@ -5,11 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.57"
-lalrpop-util = { version = "0.19.7", features = [ "lexer" ] }
+lalrpop-util = "0.19.7"
 lexgen = "0.10.0"
 lexgen_util = "0.10.0"
 rustyline = "9.1.2"
 thiserror = "1.0.30"
 
 [build-dependencies]
-lalrpop = "0.19.7"
+lalrpop = { version = "0.19.7", default-features = false }
