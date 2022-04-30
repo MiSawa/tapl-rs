@@ -42,7 +42,6 @@ pub fn reduce(term: TermRef) -> Option<TermRef> {
 
 fn eval_small(mut term: TermRef) -> TermRef {
     while let Some(next) = reduce(term.clone()) {
-        eprintln!("{next:?}");
         term = next
     }
     term

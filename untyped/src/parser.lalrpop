@@ -1,0 +1,37 @@
+use std::{rc::Rc, str::FromStr};
+
+use lalrpop_util::ParseError;
+
+use crate::{ast::Term, lexer::{Loc, LexerError, Token}};
+
+grammar;
+
+Rc<T>: Rc<T> = <T> => Rc::new(<>);
+
+AtomicTerm: Term = {
+    Ident => Term::Var(<>),
+    "(" <Term> ")" => <>,
+};
+
+pub Term: Term = {
+    #[precedence(level="0")]
+    AtomicTerm,
+
+    #[precedence(level="1")] #[assoc(side="left")]
+    Rc<Term> Rc<Term> => Term::Apply(<>),
+    #[precedence(level="2")] #[assoc(side="all")]
+    "lambda" <Ident> "." <Rc<Term>> => Term::Abs(<>),
+};
+
+extern {
+    type Location = Loc;
+    type Error = LexerError;
+
+    enum Token {
+        "(" => Token::LParen,
+        ")" => Token::RParen,
+        "lambda" => Token::Lambda,
+        "." => Token::Dot,
+        Ident => Token::Identifier(<String>),
+    }
+}
