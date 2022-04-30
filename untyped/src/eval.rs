@@ -14,7 +14,7 @@ pub type Result<T> = std::result::Result<T, EvalError>;
 type StringRef = Rc<String>;
 type TermRef = Rc<Term>;
 
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Term {
     Var(usize),
     Abs(StringRef, TermRef),
@@ -150,6 +150,57 @@ fn eval_small(mut term: Term) -> Term {
     term
 }
 
+fn eval_big(term: &Term) -> Option<Term> {
+    use Term::*;
+    Some(match term {
+        Var(_) => term.clone(),
+        Abs(_, _) => term.clone(),
+        Apply(lhs, rhs) => {
+            let lhs = eval_big(lhs)?;
+            let rhs = eval_big(rhs)?;
+            if let Abs(_, body) = lhs {
+                apply(&body, &rhs)
+            } else {
+                return None;
+            }
+        }
+    })
+}
+
 pub fn eval(term: Term) -> Term {
-    eval_small(term)
+    let a = eval_small(term.clone());
+    if let Some(b) = eval_big(&term) {
+        assert_eq!(a, b);
+    }
+    a
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Term::*, *};
+
+    macro_rules! var {
+        ($n:expr) => {
+            Var($n)
+        };
+    }
+    macro_rules! lambda {
+        ($x:expr, $body: expr) => {
+            Abs(StringRef::new($x.to_string()), $body.into())
+        };
+    }
+    macro_rules! apply {
+        ($lhs:expr, $rhs: expr) => {
+            Apply($lhs.into(), $rhs.into())
+        };
+    }
+
+    #[test]
+    fn test() {
+        assert_eq!(eval(lambda!("x", var!(0))), lambda!("x", var!(0)));
+        assert_eq!(
+            eval(apply!(lambda!("x", var!(0)), lambda!("y", var!(0)))),
+            lambda!("y", var!(0))
+        );
+    }
 }
