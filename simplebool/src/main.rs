@@ -5,6 +5,7 @@ use parser::{lexer, Spanned};
 use util::repl;
 
 mod compiler;
+mod evaluator;
 mod parser;
 
 fn build_report(e: chumsky::error::Simple<String>) -> Report {
@@ -27,7 +28,7 @@ fn build_report(e: chumsky::error::Simple<String>) -> Report {
                 .with_message(format!("Unexpected {found}, expected {expected}",))
                 .with_label(
                     Label::new(e.span())
-                        .with_message(format!("Unexpected token {}", found.fg(Color::Red)))
+                        .with_message(format!("Unexpected {}", found.fg(Color::Red)))
                         .with_color(Color::Red),
                 )
         }
@@ -82,10 +83,15 @@ fn eval(input: String) -> Result<()> {
             println!("{term:?}")
         } else if let Some(input) = input.strip_prefix("typeof") {
             let term = parser::parse(input).map_err(|es| (input, es))?;
-            let ty =
-                compiler::check_type(&term).map_err(|e| (input, vec![e.map(|e| e.to_string())]))?;
+            let ty = compiler::get_type(&term).map_err(|e| (input, vec![e]))?;
             println!("{ty}")
+        } else if let Some(input) = input.strip_prefix("eval") {
+            let term = parser::parse(input).map_err(|es| (input, es))?;
+            let term = compiler::compile(&term).map_err(|e| (input, vec![e]))?;
+            let evaluated = evaluator::eval(term.forget_context());
+            println!("{evaluated:?}")
         }
+
         Ok(())
     }
     if let Err((input, es)) = inner(&input) {

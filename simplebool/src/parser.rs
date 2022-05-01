@@ -1,10 +1,10 @@
-use std::{ops::Deref, rc::Rc};
+use std::rc::Rc;
 
 use chumsky::prelude::*;
 
 pub type Span = std::ops::Range<usize>;
-#[derive(Clone, Debug)]
-pub struct Spanned<T>(T, Span);
+#[derive(derive_more::Deref, Clone, Debug)]
+pub struct Spanned<T>(#[deref] T, Span);
 impl<T> Spanned<T> {
     pub fn forget(self) -> T {
         self.0
@@ -14,13 +14,6 @@ impl<T> Spanned<T> {
     }
     pub fn span(&self) -> Span {
         self.1.clone()
-    }
-}
-impl<T> Deref for Spanned<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 impl<T> From<Spanned<T>> for (T, Span) {
@@ -133,10 +126,7 @@ pub enum Term {
     False,
     Var(Spanned<Identifier>),
     Abs(Spanned<Identifier>, Rc<Spanned<Type>>, Rc<Spanned<Term>>),
-    App {
-        lhs: Rc<Spanned<Term>>,
-        rhs: Rc<Spanned<Term>>,
-    },
+    App(Rc<Spanned<Term>>, Rc<Spanned<Term>>),
     If {
         cond: Rc<Spanned<Term>>,
         positive: Rc<Spanned<Term>>,
@@ -144,36 +134,38 @@ pub enum Term {
     },
 }
 pub trait TermVisitor<T> {
-    fn visit_true(&mut self) -> T;
-    fn visit_false(&mut self) -> T;
-    fn visit_var(&mut self, name: &Spanned<Identifier>) -> T;
+    fn visit_true(&mut self, span: Span) -> T;
+    fn visit_false(&mut self, span: Span) -> T;
+    fn visit_var(&mut self, span: Span, name: &Spanned<Identifier>) -> T;
     fn visit_abs(
         &mut self,
+        span: Span,
         name: &Spanned<Identifier>,
         ty: &Rc<Spanned<Type>>,
         body: &Rc<Spanned<Term>>,
     ) -> T;
-    fn visit_app(&mut self, lhs: &Rc<Spanned<Term>>, rhs: &Rc<Spanned<Term>>) -> T;
+    fn visit_app(&mut self, span: Span, lhs: &Rc<Spanned<Term>>, rhs: &Rc<Spanned<Term>>) -> T;
     fn visit_if(
         &mut self,
+        span: Span,
         cond: &Rc<Spanned<Term>>,
         positive: &Rc<Spanned<Term>>,
         negative: &Rc<Spanned<Term>>,
     ) -> T;
 }
-impl Term {
+impl Spanned<Term> {
     pub fn accept<T>(&self, visitor: &mut impl TermVisitor<T>) -> T {
-        match self {
-            Term::True => visitor.visit_true(),
-            Term::False => visitor.visit_false(),
-            Term::Var(name) => visitor.visit_var(name),
-            Term::Abs(name, ty, body) => visitor.visit_abs(name, ty, body),
-            Term::App { lhs, rhs } => visitor.visit_app(lhs, rhs),
+        match self.value() {
+            Term::True => visitor.visit_true(self.span()),
+            Term::False => visitor.visit_false(self.span()),
+            Term::Var(name) => visitor.visit_var(self.span(), name),
+            Term::Abs(name, ty, body) => visitor.visit_abs(self.span(), name, ty, body),
+            Term::App(lhs, rhs) => visitor.visit_app(self.span(), lhs, rhs),
             Term::If {
                 cond,
                 positive,
                 negative,
-            } => visitor.visit_if(cond, positive, negative),
+            } => visitor.visit_if(self.span(), cond, positive, negative),
         }
     }
 }
@@ -226,13 +218,7 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
             .then(atom.clone().repeated().at_least(1))
             .foldl(|lhs, rhs| {
                 let span = lhs.span().start..rhs.span().end;
-                Spanned(
-                    App {
-                        lhs: lhs.into(),
-                        rhs: rhs.into(),
-                    },
-                    span,
-                )
+                Spanned(App(lhs.into(), rhs.into()), span)
             })
             .labelled("apply");
 

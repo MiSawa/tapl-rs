@@ -159,7 +159,7 @@ fn eval_big(term: &Term) -> Option<Term> {
             let lhs = eval_big(lhs)?;
             let rhs = eval_big(rhs)?;
             if let Abs(_, body) = lhs {
-                apply(&body, &rhs)
+                eval_big(&apply(&body, &rhs))?
             } else {
                 return None;
             }
