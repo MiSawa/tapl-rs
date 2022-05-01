@@ -3,4 +3,5 @@ members = [
     "util",
     "arith",
     "untyped",
+    "simplebool",
 ]
