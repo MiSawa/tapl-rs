@@ -688,6 +688,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "subtyped"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ariadne",
+ "chumsky",
+ "derive_more",
+ "thiserror",
+ "util",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
