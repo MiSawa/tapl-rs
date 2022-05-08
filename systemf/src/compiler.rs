@@ -419,9 +419,9 @@ fn compile_term(
             let exposed = compile_type(context, exposed_type)?.forget_span();
             // TODO: realize type
             if let Type::Exists(exposed_inner) = &exposed {
-                let exposed_actual = apply_top_type(exposed_inner, &body.ty);
+                let exposed_actual = apply_top_type(exposed_inner, &inner_type);
                 // TODO: subtype?
-                if inner_type != exposed_actual {
+                if body.ty != exposed_actual {
                     return Err(Error::expected_input_found(
                         exposed_type.span.clone(),
                         std::iter::once(Some(format!("{exposed_type}"))),
@@ -440,10 +440,10 @@ fn compile_term(
         lang::Term::Unpack { ty, var, arg, body } => {
             let arg = compile_term(context, arg)?;
             // TODO: realize type
-            if matches!(arg.ty, Type::Exists(_)) {
+            if let Type::Exists(arg_inner) = arg.ty {
                 let body = compile_term(
                     &context
-                        .term_pushed(Some(var.value().clone()), arg.ty.clone().into())
+                        .term_pushed(Some(var.value().clone()), arg_inner)
                         .type_pushed(Some(ty.value().clone())),
                     body,
                 )?;
