@@ -4,7 +4,7 @@ use rpds::Stack;
 
 use crate::{lang, prelude::*};
 
-type Index = usize;
+pub type Index = usize;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Type {
@@ -263,10 +263,12 @@ fn map_type_var(ty: &Type, mapper: &mut impl TypeVarMapper) -> Type {
 }
 fn shift_type(diff: isize, ty: &Type) -> Type {
     struct M(isize);
-    impl<'a> TypeVarMapper for M {
+    impl TypeVarMapper for M {
         fn on_var(&mut self, depth: usize, index: Index) -> Type {
             let new_index = if index >= depth {
-                (index as isize + self.0) as usize
+                (index as isize + self.0)
+                    .try_into()
+                    .expect("Something went wrong while substituting a type variable")
             } else {
                 index
             };
@@ -275,7 +277,7 @@ fn shift_type(diff: isize, ty: &Type) -> Type {
     }
     map_type_var(ty, &mut M(diff))
 }
-fn replace_top_type(ty: &Type, replacement: &Type) -> Type {
+fn substitute_top_type(base: &Type, replacement: &Type) -> Type {
     struct M<'a>(&'a Type);
     impl<'a> TypeVarMapper for M<'a> {
         fn on_var(&mut self, depth: usize, index: Index) -> Type {
@@ -286,10 +288,10 @@ fn replace_top_type(ty: &Type, replacement: &Type) -> Type {
             Type::Variable(new_index)
         }
     }
-    map_type_var(ty, &mut M(replacement))
+    map_type_var(base, &mut M(replacement))
 }
-fn substitute_top_type(ty: &Type, replacement: &Type) -> Type {
-    shift_type(-1, &replace_top_type(ty, &shift_type(1, replacement)))
+fn apply_top_type(body: &Type, arg: &Type) -> Type {
+    shift_type(-1, &substitute_top_type(body, &shift_type(1, arg)))
 }
 
 struct TypeSpannedTerm {
@@ -387,7 +389,7 @@ fn compile_term(
             } else {
                 return Err(Error::expected_input_found(
                     lhs.span,
-                    std::iter::once(Some("Arrow type".to_string())),
+                    std::iter::once(Some("arrow type".to_string())),
                     Some(format!("{}", lhs.ty)),
                 ));
             }
@@ -417,7 +419,7 @@ fn compile_term(
             let exposed = compile_type(context, exposed_type)?.forget_span();
             // TODO: realize type
             if let Type::Exists(exposed_inner) = &exposed {
-                let exposed_actual = substitute_top_type(exposed_inner, &body.ty);
+                let exposed_actual = apply_top_type(exposed_inner, &body.ty);
                 // TODO: subtype?
                 if inner_type != exposed_actual {
                     return Err(Error::expected_input_found(
@@ -430,7 +432,7 @@ fn compile_term(
             } else {
                 return Err(Error::expected_input_found(
                     exposed_type.span.clone(),
-                    std::iter::once(Some("Existential type".to_string())),
+                    std::iter::once(Some("existential type".to_string())),
                     Some(format!("{exposed_type}")),
                 ));
             }
@@ -452,7 +454,7 @@ fn compile_term(
             } else {
                 return Err(Error::expected_input_found(
                     arg.span,
-                    std::iter::once(Some("Existential type".to_string())),
+                    std::iter::once(Some("existential type".to_string())),
                     Some(format!("{}", arg.ty)),
                 ));
             }
@@ -571,12 +573,12 @@ fn compile_term(
             let body = compile_term(context, body)?;
             let ty = compile_type(context, ty)?.forget_span();
             if let Type::Forall(inner) = &body.ty {
-                let new_ty = substitute_top_type(inner, &ty);
+                let new_ty = apply_top_type(inner, &ty);
                 (new_ty, body.term)
             } else {
                 return Err(Error::expected_input_found(
                     body.span,
-                    std::iter::once(Some("Forall type".to_string())),
+                    std::iter::once(Some("universal type".to_string())),
                     Some(format!("{}", body.ty)),
                 ));
             }
@@ -585,7 +587,7 @@ fn compile_term(
             let body_span = &body.span;
             let body = compile_term(context, body)?;
             // TODO: realize type
-            if let Type::Apply(lhs, rhs) = &body.ty {
+            if let Type::Arrow(lhs, rhs) = &body.ty {
                 // TODO: subtype
                 if lhs == rhs {
                     (lhs.as_ref().clone(), Term::Fix(body.term.into()))

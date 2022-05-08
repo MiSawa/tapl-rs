@@ -6,6 +6,7 @@ use util::repl;
 use crate::prelude::*;
 
 mod compiler;
+mod evaluator;
 mod lang;
 mod parser;
 mod prelude;
@@ -102,22 +103,39 @@ fn compile(input: &str) -> CommandResult {
     Ok(())
 }
 
+fn evaluate(input: &str) -> CommandResult {
+    let term = parser::parse(input).map_err(|es| (input, es))?;
+    let term = compiler::compile(&term).map_err(|e| (input, vec![e]))?;
+    let term = evaluator::evaluate(&term);
+    println!("{term}");
+    Ok(())
+}
+
 fn show_help() {
     println!(
+        "{}",
         r#"
-:tokenize term      -- show tokenized term
-:parse term         -- show parsed term
-:typeof term        -- show the type of the compiled term
-:compile term       -- show the compilation result of the term
+:tokenize   term    -- show tokenized term
+:parse      term    -- show parsed term
+:typeof     term    -- show the type of the compiled term
+:compile    term    -- show the compilation result of the term
+:evaluate   term    -- show the evaluation result
 :help               -- show this message
-"#
+        "#
+        .trim()
     );
 }
 
 fn eval(input: String) -> Result<()> {
+    if input.is_empty() {
+        return Ok(());
+    }
     fn inner(input: &str) -> CommandResult {
         let (cmd, input) = if let Some(stripped) = input.strip_prefix(':') {
-            stripped.trim_start().split_once(' ').unwrap_or(("", input))
+            stripped
+                .trim_start()
+                .split_once(' ')
+                .unwrap_or((stripped, ""))
         } else {
             ("", input)
         };
@@ -133,6 +151,9 @@ fn eval(input: String) -> Result<()> {
             }
             "c" | "compile" => {
                 compile(input)?;
+            }
+            "" | "r" | "run" | "e" | "eval" | "evaluate" => {
+                evaluate(input)?;
             }
             "h" | "he" | "hel" | "help" => {
                 show_help();
