@@ -10,6 +10,7 @@ use crate::{
 pub trait SimpleParser<I: Clone + std::hash::Hash, O>:
     Parser<I, O, Error = Error<I>> + Clone
 {
+    #[allow(clippy::type_complexity)]
     fn spanned(self) -> chumsky::combinator::MapWithSpan<Self, fn(O, Span) -> Spanned<O>, O>
     where
         Self: Sized,

@@ -64,87 +64,38 @@ pub enum Func {
     IsZero,
 }
 
-#[derive(PartialEq, Eq, derive_more::AsRef, Clone, Debug)]
-pub struct Term<I> {
-    info: I,
-    #[as_ref]
-    node: TermNode<I>,
-}
-
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum TermNode<I> {
+pub enum Term {
     Unit,
     Bool(bool),
     Nat(Nat),
-    Record(Vec<(Identifier, Rc<Term<I>>)>),
-    Access(Rc<Term<I>>, Identifier),
+    Record(Vec<(Identifier, Rc<Self>)>),
+    Access(Rc<Self>, Identifier),
     Variable(Index),
-    Abstract(Rc<Term<I>>),
-    Apply(Rc<Term<I>>, Rc<Term<I>>),
-    Pack(Rc<Term<I>>),
-    Unpack(Rc<Term<I>>, Rc<Term<I>>),
+    Abstract(Rc<Self>),
+    Apply(Rc<Self>, Rc<Self>),
+    Pack(Rc<Self>),
+    Unpack(Rc<Self>, Rc<Self>),
     If {
-        cond: Rc<Term<I>>,
-        positive: Rc<Term<I>>,
-        negative: Rc<Term<I>>,
+        cond: Rc<Self>,
+        positive: Rc<Self>,
+        negative: Rc<Self>,
     },
     Let {
-        arg: Rc<Term<I>>,
-        body: Rc<Term<I>>,
+        arg: Rc<Self>,
+        body: Rc<Self>,
     },
-    Fix(Rc<Term<I>>),
+    Fix(Rc<Self>),
     Func(Func),
 }
 
-impl<I> Term<I> {
-    fn forget(&self) -> Term<()> {
-        let node = match &self.node {
-            TermNode::Unit => TermNode::Unit,
-            TermNode::Bool(v) => TermNode::Bool(*v),
-            TermNode::Nat(v) => TermNode::Nat(*v),
-            TermNode::Record(entries) => TermNode::Record(
-                entries
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.forget().into()))
-                    .collect(),
-            ),
-            TermNode::Access(record, field) => {
-                TermNode::Access(record.forget().into(), field.clone())
-            }
-            TermNode::Variable(i) => TermNode::Variable(*i),
-            TermNode::Abstract(body) => TermNode::Abstract(body.forget().into()),
-            TermNode::Apply(lhs, rhs) => TermNode::Apply(lhs.forget().into(), rhs.forget().into()),
-            TermNode::Pack(body) => TermNode::Pack(body.forget().into()),
-            TermNode::Unpack(arg, body) => {
-                TermNode::Unpack(arg.forget().into(), body.forget().into())
-            }
-            TermNode::If {
-                cond,
-                positive,
-                negative,
-            } => TermNode::If {
-                cond: cond.forget().into(),
-                positive: positive.forget().into(),
-                negative: negative.forget().into(),
-            },
-            TermNode::Let { arg, body } => TermNode::Let {
-                arg: arg.forget().into(),
-                body: body.forget().into(),
-            },
-            TermNode::Fix(body) => TermNode::Fix(body.forget().into()),
-            TermNode::Func(func) => TermNode::Func(*func),
-        };
-        Term { info: (), node }
-    }
-}
-
-impl<T> std::fmt::Display for Term<T> {
+impl std::fmt::Display for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.node {
-            TermNode::Unit => f.write_str("unit"),
-            TermNode::Bool(v) => f.write_fmt(format_args!("{v}")),
-            TermNode::Nat(v) => f.write_fmt(format_args!("{v}")),
-            TermNode::Record(entries) => {
+        match &self {
+            Term::Unit => f.write_str("unit"),
+            Term::Bool(v) => f.write_fmt(format_args!("{v}")),
+            Term::Nat(v) => f.write_fmt(format_args!("{v}")),
+            Term::Record(entries) => {
                 f.write_str("{")?;
                 for (i, (key, val)) in entries.iter().enumerate() {
                     if i > 0 {
@@ -158,22 +109,20 @@ impl<T> std::fmt::Display for Term<T> {
                 }
                 f.write_str("}")
             }
-            TermNode::Access(term, key) => f.write_fmt(format_args!("{term}.{key}")),
-            TermNode::Variable(index) => f.write_fmt(format_args!("v_{index}")),
-            TermNode::Abstract(body) => f.write_fmt(format_args!("(lambda _: _. {body})")),
-            TermNode::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
-            TermNode::Pack(body) => f.write_fmt(format_args!("{{*_, {body}}} as _")),
-            TermNode::Unpack(arg, body) => {
-                f.write_fmt(format_args!("let {{*_, _}} = {arg} in {body}"))
-            }
-            TermNode::If {
+            Term::Access(term, key) => f.write_fmt(format_args!("{term}.{key}")),
+            Term::Variable(index) => f.write_fmt(format_args!("v_{index}")),
+            Term::Abstract(body) => f.write_fmt(format_args!("(lambda _: _. {body})")),
+            Term::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
+            Term::Pack(body) => f.write_fmt(format_args!("{{*_, {body}}} as _")),
+            Term::Unpack(arg, body) => f.write_fmt(format_args!("let {{*_, _}} = {arg} in {body}")),
+            Term::If {
                 cond,
                 positive,
                 negative,
             } => f.write_fmt(format_args!("(if {cond} then {positive} else {negative})")),
-            TermNode::Let { arg, body } => f.write_fmt(format_args!("let _ = {arg} in {body}")),
-            TermNode::Fix(body) => f.write_fmt(format_args!("(fix ({body}))")),
-            TermNode::Func(func) => f.write_fmt(format_args!("{func}")),
+            Term::Let { arg, body } => f.write_fmt(format_args!("let _ = {arg} in {body}")),
+            Term::Fix(body) => f.write_fmt(format_args!("(fix ({body}))")),
+            Term::Func(func) => f.write_fmt(format_args!("{func}")),
         }
     }
 }
@@ -343,63 +292,64 @@ fn substitute_top_type(ty: &Type, replacement: &Type) -> Type {
     shift_type(-1, &replace_top_type(ty, &shift_type(1, replacement)))
 }
 
-type TypeSpanedTerm = Term<(Type, Span)>;
+struct TypeSpannedTerm {
+    ty: Type,
+    span: Span,
+    term: Term,
+}
+
 fn compile_term(
     context: &(impl TermContext + TypeContext),
-    term: &Spanned<lang::Term>,
-) -> Result<TypeSpanedTerm> {
-    let (ty, node) = match term.as_ref() {
-        lang::Term::Unit => (Type::Unit, TermNode::Unit),
-        lang::Term::Bool(v) => (Type::Bool, TermNode::Bool(*v)),
-        lang::Term::Nat(v) => (Type::Nat, TermNode::Nat(*v)),
+    original: &Spanned<lang::Term>,
+) -> Result<TypeSpannedTerm> {
+    let (ty, term) = match original.as_ref() {
+        lang::Term::Unit => (Type::Unit, Term::Unit),
+        lang::Term::Bool(v) => (Type::Bool, Term::Bool(*v)),
+        lang::Term::Nat(v) => (Type::Nat, Term::Nat(*v)),
         lang::Term::Record(entries) => {
-            let entries = entries
-                .iter()
-                .map(|(k, v)| Ok((k.value().clone(), compile_term(context, v)?.into())))
-                .collect::<Result<Vec<(_, Rc<Term<_>>)>>>()?;
-            let ty = Type::Record(
-                entries
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.info.0.clone().into()))
-                    .collect(),
-            );
-            let node = TermNode::Record(entries);
-            (ty, node)
+            let mut values = vec![];
+            let mut types = vec![];
+            for (k, v) in entries {
+                let inner = compile_term(context, v)?;
+                values.push((k.value().clone(), inner.term.into()));
+                types.push((k.value().clone(), inner.ty.into()));
+            }
+            (Type::Record(types), Term::Record(values))
         }
         lang::Term::Access(term, key) => {
-            let inner = Rc::new(compile_term(context, term)?);
+            let inner = compile_term(context, term)?;
             // TODO: realize type
-            if let Type::Record(entries) = &inner.info.0 {
+            if let Type::Record(entries) = &inner.ty {
                 if let Some(ty) = entries
                     .iter()
                     .find_map(|(k, ty)| (k == key.value()).then(|| ty))
                 {
                     (
                         ty.as_ref().clone(),
-                        TermNode::Access(inner, key.value().clone()),
+                        Term::Access(inner.term.into(), key.value().clone()),
                     )
                 } else {
                     return Err(Error::custom(
                         term.span(),
                         format!(
                             "Expected a record type that has key {key} but was {}",
-                            inner.info.0
+                            inner.ty
                         ),
                     ));
                 }
             } else {
                 return Err(Error::custom(
                     term.span(),
-                    format!("Expected a record type but was {}", inner.info.0),
+                    format!("Expected a record type but was {}", inner.ty),
                 ));
             }
         }
         lang::Term::Variable(name) => {
             if let Some((i, ty)) = context.lookup_variable(name.as_ref()) {
-                (ty.as_ref().clone(), TermNode::Variable(i))
+                (ty.as_ref().clone(), Term::Variable(i))
             } else {
                 return Err(Error::custom(
-                    term.span(),
+                    original.span(),
                     format!("Encounter a free variable {name}"),
                 ));
             }
@@ -411,35 +361,34 @@ fn compile_term(
                 body,
             )?;
             (
-                Type::Arrow(ty, body.info.0.clone().into()),
-                TermNode::Abstract(body.into()),
+                Type::Arrow(ty, body.ty.clone().into()),
+                Term::Abstract(body.term.into()),
             )
         }
         lang::Term::Apply(lhs, rhs) => {
             let lhs = compile_term(context, lhs)?;
-            let ltype = &lhs.info.0;
             let rhs = compile_term(context, rhs)?;
-            let rtype = &rhs.info.0;
+            let rtype = &rhs.ty;
             // TODO: realize type
-            if let Type::Arrow(dom, codom) = ltype {
+            if let Type::Arrow(dom, codom) = lhs.ty {
                 // TODO: subtype
                 if dom.as_ref() == rtype {
                     (
-                        codom.as_ref().clone(),
-                        TermNode::Apply(lhs.into(), rhs.into()),
+                        (*codom).clone(),
+                        Term::Apply(lhs.term.into(), rhs.term.into()),
                     )
                 } else {
                     return Err(Error::expected_input_found(
-                        rhs.info.1,
+                        rhs.span,
                         std::iter::once(Some(format!("{codom}"))),
                         Some(format!("{rtype}")),
                     ));
                 }
             } else {
                 return Err(Error::expected_input_found(
-                    lhs.info.1,
+                    lhs.span,
                     std::iter::once(Some("Arrow type".to_string())),
-                    Some(format!("{ltype}")),
+                    Some(format!("{}", lhs.ty)),
                 ));
             }
         }
@@ -447,14 +396,14 @@ fn compile_term(
             let body = compile_term(context, body)?;
             let ty = compile_type(context, ty)?.forget_span();
             // TODO: subtype
-            if body.info.0 == ty {
+            if body.ty == ty {
                 // We eliminate the ascription in the compile time
-                (ty, body.node)
+                (ty, body.term)
             } else {
                 return Err(Error::expected_input_found(
-                    body.info.1,
+                    body.span,
                     std::iter::once(Some(format!("{ty}"))),
-                    Some(format!("{}", body.info.0)),
+                    Some(format!("{}", body.ty)),
                 ));
             }
         }
@@ -468,7 +417,7 @@ fn compile_term(
             let exposed = compile_type(context, exposed_type)?.forget_span();
             // TODO: realize type
             if let Type::Exists(exposed_inner) = &exposed {
-                let exposed_actual = substitute_top_type(exposed_inner, &body.info.0);
+                let exposed_actual = substitute_top_type(exposed_inner, &body.ty);
                 // TODO: subtype?
                 if inner_type != exposed_actual {
                     return Err(Error::expected_input_found(
@@ -477,7 +426,7 @@ fn compile_term(
                         Some(format!("{inner_type}")),
                     ));
                 }
-                (exposed, TermNode::Pack(body.into()))
+                (exposed, Term::Pack(body.term.into()))
             } else {
                 return Err(Error::expected_input_found(
                     exposed_type.span.clone(),
@@ -489,22 +438,22 @@ fn compile_term(
         lang::Term::Unpack { ty, var, arg, body } => {
             let arg = compile_term(context, arg)?;
             // TODO: realize type
-            if matches!(arg.info.0, Type::Exists(_)) {
+            if matches!(arg.ty, Type::Exists(_)) {
                 let body = compile_term(
                     &context
-                        .term_pushed(Some(var.value().clone()), arg.info.0.clone().into())
+                        .term_pushed(Some(var.value().clone()), arg.ty.clone().into())
                         .type_pushed(Some(ty.value().clone())),
                     body,
                 )?;
                 (
-                    body.info.0.clone(),
-                    TermNode::Unpack(arg.into(), body.into()),
+                    body.ty.clone(),
+                    Term::Unpack(arg.term.into(), body.term.into()),
                 )
             } else {
                 return Err(Error::expected_input_found(
-                    arg.info.1,
+                    arg.span,
                     std::iter::once(Some("Existential type".to_string())),
-                    Some(format!("{}", arg.info.0)),
+                    Some(format!("{}", arg.ty)),
                 ));
             }
         }
@@ -534,7 +483,7 @@ fn compile_term(
             return compile_term(
                 context,
                 &Spanned {
-                    span: term.span(),
+                    span: original.span(),
                     value: seq,
                 },
             );
@@ -547,46 +496,43 @@ fn compile_term(
             let cond = compile_term(context, cond)?;
             let positive = compile_term(context, positive)?;
             let negative = compile_term(context, negative)?;
-            if cond.info.0 != Type::Bool {
+            if cond.ty != Type::Bool {
                 return Err(Error::expected_input_found(
-                    cond.info.1,
+                    cond.span,
                     std::iter::once(Some("Bool".to_string())),
-                    Some(format!("{}", cond.info.0)),
+                    Some(format!("{}", cond.ty)),
                 ));
             }
             // TODO: join type
-            if positive.info.0 != negative.info.0 {
+            if positive.ty != negative.ty {
                 return Err(Error::custom(
-                    term.span(),
+                    original.span(),
                     format!(
                         "Mismatch type of positive clause {} and negative clause {}",
-                        positive.info.0, negative.info.0
+                        positive.ty, negative.ty
                     ),
                 ));
             }
             (
-                positive.info.0.clone(),
-                TermNode::If {
-                    cond: cond.into(),
-                    positive: positive.into(),
-                    negative: negative.into(),
+                positive.ty,
+                Term::If {
+                    cond: cond.term.into(),
+                    positive: positive.term.into(),
+                    negative: negative.term.into(),
                 },
             )
         }
         lang::Term::Let { var, arg, body } => {
             let arg = compile_term(context, arg)?;
             let body = compile_term(
-                &context.term_pushed(
-                    var.as_ref().map(Spanned::value).cloned(),
-                    arg.info.0.clone().into(),
-                ),
+                &context.term_pushed(var.as_ref().map(Spanned::value).cloned(), arg.ty.into()),
                 body,
             )?;
             (
-                body.info.0.clone(),
-                TermNode::Let {
-                    arg: arg.into(),
-                    body: body.into(),
+                body.ty.clone(),
+                Term::Let {
+                    arg: arg.term.into(),
+                    body: body.term.into(),
                 },
             )
         }
@@ -608,7 +554,7 @@ fn compile_term(
                 value: fix,
             };
             let rewritten = Spanned {
-                span: term.span.clone(),
+                span: original.span.clone(),
                 value: lang::Term::Let {
                     var: Some(var.clone()),
                     arg: arg.into(),
@@ -619,19 +565,19 @@ fn compile_term(
         }
         lang::Term::TypeAbstract(name, body) => {
             let body = compile_term(&context.type_pushed(Some(name.value.clone())), body)?;
-            (Type::Forall(body.info.0.into()), body.node)
+            (Type::Forall(body.ty.into()), body.term)
         }
         lang::Term::TypeApply(body, ty) => {
             let body = compile_term(context, body)?;
             let ty = compile_type(context, ty)?.forget_span();
-            if let Type::Forall(inner) = &body.info.0 {
+            if let Type::Forall(inner) = &body.ty {
                 let new_ty = substitute_top_type(inner, &ty);
-                (new_ty, body.node)
+                (new_ty, body.term)
             } else {
                 return Err(Error::expected_input_found(
-                    body.info.1,
+                    body.span,
                     std::iter::once(Some("Forall type".to_string())),
-                    Some(format!("{}", body.info.0)),
+                    Some(format!("{}", body.ty)),
                 ));
             }
         }
@@ -639,10 +585,10 @@ fn compile_term(
             let body_span = &body.span;
             let body = compile_term(context, body)?;
             // TODO: realize type
-            if let Type::Apply(lhs, rhs) = &body.info.0 {
+            if let Type::Apply(lhs, rhs) = &body.ty {
                 // TODO: subtype
                 if lhs == rhs {
-                    (lhs.as_ref().clone(), TermNode::Fix(body.into()))
+                    (lhs.as_ref().clone(), Term::Fix(body.term.into()))
                 } else {
                     return Err(Error::custom(
                         body_span.clone(),
@@ -656,7 +602,7 @@ fn compile_term(
                 return Err(Error::expected_input_found(
                     body_span.clone(),
                     std::iter::once(Some("arrow type".to_string())),
-                    Some(format!("{}", body.info.0)),
+                    Some(format!("{}", body.ty)),
                 ));
             }
         }
@@ -669,21 +615,22 @@ fn compile_term(
                 lang::Func::Pred => (arrow(Type::Nat, Type::Nat), Func::Pred),
                 lang::Func::IsZero => (arrow(Type::Nat, Type::Bool), Func::IsZero),
             };
-            (ty, TermNode::Func(func))
+            (ty, Term::Func(func))
         }
     };
-    Ok(Term {
-        info: (ty, term.span()),
-        node,
+    Ok(TypeSpannedTerm {
+        ty,
+        span: original.span(),
+        term,
     })
 }
 
-pub fn compile(term: &Spanned<lang::Term>) -> Result<Term<()>> {
+pub fn compile(term: &Spanned<lang::Term>) -> Result<Term> {
     let context = Context::default();
-    compile_term(&context, term).map(|t| t.forget())
+    compile_term(&context, term).map(|t| t.term)
 }
 
 pub fn get_type(term: &Spanned<lang::Term>) -> Result<Type> {
     let context = Context::default();
-    compile_term(&context, term).map(|t| t.info.0)
+    compile_term(&context, term).map(|t| t.ty)
 }
