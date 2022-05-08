@@ -64,7 +64,8 @@ fn build_report(e: chumsky::error::Simple<String, Span>) -> Report<Span> {
     .finish()
 }
 
-fn tokenize(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String, Span>>)> {
+type CommandResult<'a> = Result<(), (&'a str, Vec<chumsky::error::Simple<String, Span>>)>;
+fn tokenize(input: &str) -> CommandResult {
     let tokens = parser::lexer()
         .parse(input)
         .map_err(|es| {
@@ -81,20 +82,20 @@ fn tokenize(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String,
     Ok(())
 }
 
-fn parse(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String, Span>>)> {
+fn parse(input: &str) -> CommandResult {
     let term = parser::parse(input).map_err(|es| (input, es))?;
     println!("{term:?}");
     Ok(())
 }
 
-fn gettype(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String, Span>>)> {
+fn gettype(input: &str) -> CommandResult {
     let term = parser::parse(input).map_err(|es| (input, es))?;
     let ty = compiler::get_type(&term).map_err(|e| (input, vec![e]))?;
     println!("{ty}");
     Ok(())
 }
 
-fn compile(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String, Span>>)> {
+fn compile(input: &str) -> CommandResult {
     let term = parser::parse(input).map_err(|es| (input, es))?;
     let term = compiler::compile(&term).map_err(|e| (input, vec![e]))?;
     println!("{term}");
@@ -114,12 +115,9 @@ fn show_help() {
 }
 
 fn eval(input: String) -> Result<()> {
-    fn inner(input: &str) -> Result<(), (&str, Vec<chumsky::error::Simple<String, Span>>)> {
-        let (cmd, input) = if input.starts_with(':') {
-            input[1..]
-                .trim_start()
-                .split_once(' ')
-                .unwrap_or(("", input))
+    fn inner(input: &str) -> CommandResult {
+        let (cmd, input) = if let Some(stripped) = input.strip_prefix(':') {
+            stripped.trim_start().split_once(' ').unwrap_or(("", input))
         } else {
             ("", input)
         };

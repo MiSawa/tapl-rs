@@ -6,62 +6,31 @@ use crate::{lang, prelude::*};
 
 type Index = usize;
 
-#[derive(PartialEq, Eq, derive_more::AsRef, Clone, Debug)]
-pub struct Type<I> {
-    info: I,
-    #[as_ref]
-    node: TypeNode<I>,
-}
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum TypeNode<I> {
+pub enum Type {
     Bot,
     Top,
     Unit,
     Bool,
     Nat,
-    Record(Vec<(Identifier, Rc<Type<I>>)>),
-    Arrow(Rc<Type<I>>, Rc<Type<I>>),
+    Record(Vec<(Identifier, Rc<Self>)>),
+    Arrow(Rc<Self>, Rc<Self>),
     Variable(Index),
-    Abstract(Rc<Type<I>>),
-    Apply(Rc<Type<I>>, Rc<Type<I>>),
-    Exists(Rc<Type<I>>),
-    Forall(Rc<Type<I>>),
+    Abstract(Rc<Self>),
+    Apply(Rc<Self>, Rc<Self>),
+    Exists(Rc<Self>),
+    Forall(Rc<Self>),
 }
 
-impl<I> Type<I> {
-    fn forget(&self) -> Type<()> {
-        let node = match &self.node {
-            TypeNode::Bot => TypeNode::Bot,
-            TypeNode::Top => TypeNode::Top,
-            TypeNode::Unit => TypeNode::Unit,
-            TypeNode::Bool => TypeNode::Bool,
-            TypeNode::Nat => TypeNode::Nat,
-            TypeNode::Record(entries) => TypeNode::Record(
-                entries
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.forget().into()))
-                    .collect(),
-            ),
-            TypeNode::Arrow(lhs, rhs) => TypeNode::Arrow(lhs.forget().into(), rhs.forget().into()),
-            TypeNode::Variable(name) => TypeNode::Variable(name.clone()),
-            TypeNode::Abstract(body) => TypeNode::Abstract(body.forget().into()),
-            TypeNode::Apply(lhs, rhs) => TypeNode::Apply(lhs.forget().into(), rhs.forget().into()),
-            TypeNode::Exists(body) => TypeNode::Exists(body.forget().into()),
-            TypeNode::Forall(body) => TypeNode::Forall(body.forget().into()),
-        };
-        Type { info: (), node }
-    }
-}
-
-impl<T> std::fmt::Display for Type<T> {
+impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.node {
-            TypeNode::Bot => f.write_str("Bot"),
-            TypeNode::Top => f.write_str("Top"),
-            TypeNode::Unit => f.write_str("Unit"),
-            TypeNode::Bool => f.write_str("Bool"),
-            TypeNode::Nat => f.write_str("Nat"),
-            TypeNode::Record(entries) => {
+        match self {
+            Type::Bot => f.write_str("Bot"),
+            Type::Top => f.write_str("Top"),
+            Type::Unit => f.write_str("Unit"),
+            Type::Bool => f.write_str("Bool"),
+            Type::Nat => f.write_str("Nat"),
+            Type::Record(entries) => {
                 f.write_str("{")?;
                 for (i, (key, ty)) in entries.iter().enumerate() {
                     if i > 0 {
@@ -75,12 +44,12 @@ impl<T> std::fmt::Display for Type<T> {
                 }
                 f.write_str("}")
             }
-            TypeNode::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
-            TypeNode::Variable(index) => f.write_fmt(format_args!("{index}")),
-            TypeNode::Abstract(body) => f.write_fmt(format_args!("lambda _Type. {body}")),
-            TypeNode::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
-            TypeNode::Exists(body) => f.write_fmt(format_args!("{{*_Type, {body}}}")),
-            TypeNode::Forall(body) => f.write_fmt(format_args!("All _Type. {body}")),
+            Type::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
+            Type::Variable(index) => f.write_fmt(format_args!("{index}")),
+            Type::Abstract(body) => f.write_fmt(format_args!("lambda _Type. {body}")),
+            Type::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
+            Type::Exists(body) => f.write_fmt(format_args!("{{*_Type, {body}}}")),
+            Type::Forall(body) => f.write_fmt(format_args!("All _Type. {body}")),
         }
     }
 }
@@ -214,23 +183,22 @@ trait TypeContext {
     fn type_pushed(&self, name: Option<Identifier>) -> Self;
 }
 
-trait TermContext<J> {
-    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type<J>>)>;
-    fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type<J>>) -> Self;
+trait TermContext {
+    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type>)>;
+    fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type>) -> Self;
 }
 
 #[derive(Default)]
-struct Context<J> {
+struct Context {
     types: Stack<Option<Identifier>>,
-    variables: Stack<(Option<Identifier>, Rc<Type<J>>)>,
+    variables: Stack<(Option<Identifier>, Rc<Type>)>,
 }
-impl<J> TypeContext for Context<J> {
+impl TypeContext for Context {
     fn lookup_type_variable(&self, name: &Identifier) -> Option<Index> {
         self.types
             .iter()
             .enumerate()
             .find_map(|(i, n)| n.as_ref().filter(|n| n == &name).map(|_| i))
-            .clone()
     }
     fn type_pushed(&self, name: Option<Identifier>) -> Self {
         let types = self.types.push(name);
@@ -238,40 +206,45 @@ impl<J> TypeContext for Context<J> {
         Self { types, variables }
     }
 }
-impl<J> TermContext<J> for Context<J> {
-    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type<J>>)> {
+impl TermContext for Context {
+    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type>)> {
         self.variables
             .iter()
             .enumerate()
             .find_map(|(i, (n, ty))| n.as_ref().filter(|n| n == &name).map(|_| (i, ty.clone())))
     }
-    fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type<J>>) -> Self {
+    fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type>) -> Self {
         let types = self.types.clone();
         let variables = self.variables.push((name, ty));
         Self { types, variables }
     }
 }
 
-fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<Type<Span>> {
-    let node = match ty.as_ref() {
-        lang::Type::Bot => TypeNode::Bot,
-        lang::Type::Top => TypeNode::Top,
-        lang::Type::Unit => TypeNode::Unit,
-        lang::Type::Bool => TypeNode::Bool,
-        lang::Type::Nat => TypeNode::Nat,
-        lang::Type::Record(entries) => TypeNode::Record(
+fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<Spanned<Type>> {
+    let value = match ty.as_ref() {
+        lang::Type::Bot => Type::Bot,
+        lang::Type::Top => Type::Top,
+        lang::Type::Unit => Type::Unit,
+        lang::Type::Bool => Type::Bool,
+        lang::Type::Nat => Type::Nat,
+        lang::Type::Record(entries) => Type::Record(
             entries
                 .iter()
-                .map(|(k, v)| Ok((k.value().clone(), compile_type(context, v)?.into())))
+                .map(|(k, v)| {
+                    Ok((
+                        k.value().clone(),
+                        compile_type(context, v)?.forget_span().into(),
+                    ))
+                })
                 .collect::<Result<_>>()?,
         ),
-        lang::Type::Arrow(lhs, rhs) => TypeNode::Arrow(
-            compile_type(context, lhs)?.into(),
-            compile_type(context, rhs)?.into(),
+        lang::Type::Arrow(lhs, rhs) => Type::Arrow(
+            compile_type(context, lhs)?.forget_span().into(),
+            compile_type(context, rhs)?.forget_span().into(),
         ),
         lang::Type::Variable(name) => {
             if let Some(i) = context.lookup_type_variable(name.as_ref()) {
-                TypeNode::Variable(i)
+                Type::Variable(i)
             } else {
                 return Err(Error::custom(
                     ty.span(),
@@ -279,116 +252,112 @@ fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<
                 ));
             }
         }
-        lang::Type::Abstract(var, body) => TypeNode::Abstract(
-            compile_type(&context.type_pushed(Some(var.as_ref().clone())), body)?.into(),
+        lang::Type::Abstract(var, body) => Type::Abstract(
+            compile_type(&context.type_pushed(Some(var.as_ref().clone())), body)?
+                .forget_span()
+                .into(),
         ),
-        lang::Type::Apply(lhs, rhs) => TypeNode::Apply(
-            compile_type(context, lhs)?.into(),
-            compile_type(context, rhs)?.into(),
+        lang::Type::Apply(lhs, rhs) => Type::Apply(
+            compile_type(context, lhs)?.forget_span().into(),
+            compile_type(context, rhs)?.forget_span().into(),
         ),
-        lang::Type::Exists(ident, body) => TypeNode::Exists(
-            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?.into(),
+        lang::Type::Exists(ident, body) => Type::Exists(
+            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?
+                .forget_span()
+                .into(),
         ),
-        lang::Type::Forall(ident, body) => TypeNode::Forall(
-            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?.into(),
+        lang::Type::Forall(ident, body) => Type::Forall(
+            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?
+                .forget_span()
+                .into(),
         ),
     };
-    Ok(Type {
-        info: ty.span(),
-        node,
+    Ok(Spanned {
+        span: ty.span(),
+        value,
     })
 }
 
-trait TypeVarMapper<J> {
-    fn on_var(&mut self, info: &J, depth: usize, index: Index) -> Type<J>;
+trait TypeVarMapper {
+    fn on_var(&mut self, depth: usize, index: Index) -> Type;
 }
 
-fn map_type_var<J: Clone>(ty: &Type<J>, mapper: &mut impl TypeVarMapper<J>) -> Type<J> {
-    fn rec<J: Clone>(ty: &Type<J>, mapper: &mut impl TypeVarMapper<J>, depth: usize) -> Type<J> {
-        let node = match &ty.node {
-            TypeNode::Bot => TypeNode::Bot,
-            TypeNode::Top => TypeNode::Top,
-            TypeNode::Unit => TypeNode::Unit,
-            TypeNode::Bool => TypeNode::Bool,
-            TypeNode::Nat => TypeNode::Nat,
-            TypeNode::Record(entries) => TypeNode::Record(
+fn map_type_var(ty: &Type, mapper: &mut impl TypeVarMapper) -> Type {
+    fn rec(ty: &Type, mapper: &mut impl TypeVarMapper, depth: usize) -> Type {
+        match ty {
+            Type::Bot => Type::Bot,
+            Type::Top => Type::Top,
+            Type::Unit => Type::Unit,
+            Type::Bool => Type::Bool,
+            Type::Nat => Type::Nat,
+            Type::Record(entries) => Type::Record(
                 entries
                     .iter()
                     .map(|(k, v)| (k.clone(), rec(v, mapper, depth).into()))
                     .collect(),
             ),
-            TypeNode::Arrow(lhs, rhs) => TypeNode::Arrow(
+            Type::Arrow(lhs, rhs) => Type::Arrow(
                 rec(lhs, mapper, depth).into(),
                 rec(rhs, mapper, depth).into(),
             ),
-            TypeNode::Variable(i) => return mapper.on_var(&ty.info, depth, *i),
-            TypeNode::Abstract(body) => TypeNode::Abstract(rec(body, mapper, depth + 1).into()),
-            TypeNode::Apply(lhs, rhs) => TypeNode::Apply(
+            Type::Variable(i) => mapper.on_var(depth, *i),
+            Type::Abstract(body) => Type::Abstract(rec(body, mapper, depth + 1).into()),
+            Type::Apply(lhs, rhs) => Type::Apply(
                 rec(lhs, mapper, depth).into(),
                 rec(rhs, mapper, depth).into(),
             ),
-            TypeNode::Exists(body) => TypeNode::Exists(rec(body, mapper, depth + 1).into()),
-            TypeNode::Forall(body) => TypeNode::Forall(rec(body, mapper, depth + 1).into()),
-        };
-        Type {
-            info: ty.info.clone(),
-            node,
+            Type::Exists(body) => Type::Exists(rec(body, mapper, depth + 1).into()),
+            Type::Forall(body) => Type::Forall(rec(body, mapper, depth + 1).into()),
         }
     }
     rec(ty, mapper, 0)
 }
-fn shift_type<J: Clone>(diff: isize, ty: &Type<J>) -> Type<J> {
+fn shift_type(diff: isize, ty: &Type) -> Type {
     struct M(isize);
-    impl<'a, J: Clone> TypeVarMapper<J> for M {
-        fn on_var(&mut self, info: &J, depth: usize, index: Index) -> Type<J> {
+    impl<'a> TypeVarMapper for M {
+        fn on_var(&mut self, depth: usize, index: Index) -> Type {
             let new_index = if index >= depth {
                 (index as isize + self.0) as usize
             } else {
                 index
             };
-            Type {
-                info: info.clone(),
-                node: TypeNode::Variable(new_index),
-            }
+            Type::Variable(new_index)
         }
     }
     map_type_var(ty, &mut M(diff))
 }
-fn replace_top_type<J: Clone>(ty: &Type<J>, replacement: &Type<J>) -> Type<J> {
-    struct M<'a, J>(&'a Type<J>);
-    impl<'a, J: Clone> TypeVarMapper<J> for M<'a, J> {
-        fn on_var(&mut self, info: &J, depth: usize, index: Index) -> Type<J> {
+fn replace_top_type(ty: &Type, replacement: &Type) -> Type {
+    struct M<'a>(&'a Type);
+    impl<'a> TypeVarMapper for M<'a> {
+        fn on_var(&mut self, depth: usize, index: Index) -> Type {
             if depth == index {
                 return self.0.clone();
             }
             let new_index = if depth < index { index - 1 } else { index };
-            Type {
-                info: info.clone(),
-                node: TypeNode::Variable(new_index),
-            }
+            Type::Variable(new_index)
         }
     }
     map_type_var(ty, &mut M(replacement))
 }
-fn substitute_top_type<J: Clone>(ty: &Type<J>, replacement: &Type<J>) -> Type<J> {
+fn substitute_top_type(ty: &Type, replacement: &Type) -> Type {
     shift_type(-1, &replace_top_type(ty, &shift_type(1, replacement)))
 }
 
-type TypeSpanedTerm = Term<(Type<()>, Span)>;
+type TypeSpanedTerm = Term<(Type, Span)>;
 fn compile_term(
-    context: &(impl TermContext<()> + TypeContext),
+    context: &(impl TermContext + TypeContext),
     term: &Spanned<lang::Term>,
 ) -> Result<TypeSpanedTerm> {
     let (ty, node) = match term.as_ref() {
-        lang::Term::Unit => (TypeNode::Unit, TermNode::Unit),
-        lang::Term::Bool(v) => (TypeNode::Bool, TermNode::Bool(*v)),
-        lang::Term::Nat(v) => (TypeNode::Nat, TermNode::Nat(*v)),
+        lang::Term::Unit => (Type::Unit, TermNode::Unit),
+        lang::Term::Bool(v) => (Type::Bool, TermNode::Bool(*v)),
+        lang::Term::Nat(v) => (Type::Nat, TermNode::Nat(*v)),
         lang::Term::Record(entries) => {
             let entries = entries
                 .iter()
                 .map(|(k, v)| Ok((k.value().clone(), compile_term(context, v)?.into())))
                 .collect::<Result<Vec<(_, Rc<Term<_>>)>>>()?;
-            let ty = TypeNode::Record(
+            let ty = Type::Record(
                 entries
                     .iter()
                     .map(|(k, v)| (k.clone(), v.info.0.clone().into()))
@@ -400,13 +369,13 @@ fn compile_term(
         lang::Term::Access(term, key) => {
             let inner = Rc::new(compile_term(context, term)?);
             // TODO: realize type
-            if let TypeNode::Record(entries) = &inner.info.0.node {
+            if let Type::Record(entries) = &inner.info.0 {
                 if let Some(ty) = entries
                     .iter()
                     .find_map(|(k, ty)| (k == key.value()).then(|| ty))
                 {
                     (
-                        ty.node.clone(),
+                        ty.as_ref().clone(),
                         TermNode::Access(inner, key.value().clone()),
                     )
                 } else {
@@ -427,7 +396,7 @@ fn compile_term(
         }
         lang::Term::Variable(name) => {
             if let Some((i, ty)) = context.lookup_variable(name.as_ref()) {
-                (ty.node.clone(), TermNode::Variable(i))
+                (ty.as_ref().clone(), TermNode::Variable(i))
             } else {
                 return Err(Error::custom(
                     term.span(),
@@ -436,13 +405,13 @@ fn compile_term(
             }
         }
         lang::Term::Abstract(name, ty, body) => {
-            let ty: Rc<_> = compile_type(context, ty)?.forget().into();
+            let ty: Rc<_> = compile_type(context, ty)?.forget_span().into();
             let body = compile_term(
                 &context.term_pushed(name.as_ref().map(Spanned::value).cloned(), ty.clone()),
                 body,
             )?;
             (
-                TypeNode::Arrow(ty.into(), body.info.0.clone().into()),
+                Type::Arrow(ty, body.info.0.clone().into()),
                 TermNode::Abstract(body.into()),
             )
         }
@@ -452,10 +421,13 @@ fn compile_term(
             let rhs = compile_term(context, rhs)?;
             let rtype = &rhs.info.0;
             // TODO: realize type
-            if let TypeNode::Arrow(dom, codom) = &ltype.node {
+            if let Type::Arrow(dom, codom) = ltype {
                 // TODO: subtype
                 if dom.as_ref() == rtype {
-                    (codom.node.clone(), TermNode::Apply(lhs.into(), rhs.into()))
+                    (
+                        codom.as_ref().clone(),
+                        TermNode::Apply(lhs.into(), rhs.into()),
+                    )
                 } else {
                     return Err(Error::expected_input_found(
                         rhs.info.1,
@@ -473,11 +445,11 @@ fn compile_term(
         }
         lang::Term::Ascribe(body, ty) => {
             let body = compile_term(context, body)?;
-            let ty = compile_type(context, ty)?.forget();
+            let ty = compile_type(context, ty)?.forget_span();
             // TODO: subtype
             if body.info.0 == ty {
                 // We eliminate the ascription in the compile time
-                (ty.node.clone(), body.node)
+                (ty, body.node)
             } else {
                 return Err(Error::expected_input_found(
                     body.info.1,
@@ -491,12 +463,12 @@ fn compile_term(
             body,
             exposed_type,
         } => {
-            let inner_type = compile_type(context, inner_type)?.forget();
+            let inner_type = compile_type(context, inner_type)?.forget_span();
             let body = compile_term(context, body)?;
-            let exposed = compile_type(context, exposed_type)?.forget();
+            let exposed = compile_type(context, exposed_type)?.forget_span();
             // TODO: realize type
-            if let TypeNode::Exists(exposed_inner) = &exposed.node {
-                let exposed_actual = substitute_top_type(exposed_inner, &body.info.0.forget());
+            if let Type::Exists(exposed_inner) = &exposed {
+                let exposed_actual = substitute_top_type(exposed_inner, &body.info.0);
                 // TODO: subtype?
                 if inner_type != exposed_actual {
                     return Err(Error::expected_input_found(
@@ -505,11 +477,11 @@ fn compile_term(
                         Some(format!("{inner_type}")),
                     ));
                 }
-                (exposed.node, TermNode::Pack(body.into()))
+                (exposed, TermNode::Pack(body.into()))
             } else {
                 return Err(Error::expected_input_found(
                     exposed_type.span.clone(),
-                    std::iter::once(Some(format!("Existential type"))),
+                    std::iter::once(Some("Existential type".to_string())),
                     Some(format!("{exposed_type}")),
                 ));
             }
@@ -517,7 +489,7 @@ fn compile_term(
         lang::Term::Unpack { ty, var, arg, body } => {
             let arg = compile_term(context, arg)?;
             // TODO: realize type
-            if matches!(arg.info.0.node, TypeNode::Exists(_)) {
+            if matches!(arg.info.0, Type::Exists(_)) {
                 let body = compile_term(
                     &context
                         .term_pushed(Some(var.value().clone()), arg.info.0.clone().into())
@@ -525,13 +497,13 @@ fn compile_term(
                     body,
                 )?;
                 (
-                    body.info.0.node.clone(),
+                    body.info.0.clone(),
                     TermNode::Unpack(arg.into(), body.into()),
                 )
             } else {
                 return Err(Error::expected_input_found(
                     arg.info.1,
-                    std::iter::once(Some(format!("Existential type"))),
+                    std::iter::once(Some("Existential type".to_string())),
                     Some(format!("{}", arg.info.0)),
                 ));
             }
@@ -554,10 +526,10 @@ fn compile_term(
             let seq = lang::Term::Apply(
                 Spanned {
                     span: rhs_span,
-                    value: rhs.into(),
+                    value: rhs,
                 }
                 .into(),
-                lhs.clone().into(),
+                lhs.clone(),
             );
             return compile_term(
                 context,
@@ -575,10 +547,10 @@ fn compile_term(
             let cond = compile_term(context, cond)?;
             let positive = compile_term(context, positive)?;
             let negative = compile_term(context, negative)?;
-            if cond.info.0.node != TypeNode::Bool {
+            if cond.info.0 != Type::Bool {
                 return Err(Error::expected_input_found(
                     cond.info.1,
-                    std::iter::once(Some(format!("Bool"))),
+                    std::iter::once(Some("Bool".to_string())),
                     Some(format!("{}", cond.info.0)),
                 ));
             }
@@ -593,7 +565,7 @@ fn compile_term(
                 ));
             }
             (
-                positive.info.0.node.clone(),
+                positive.info.0.clone(),
                 TermNode::If {
                     cond: cond.into(),
                     positive: positive.into(),
@@ -611,7 +583,7 @@ fn compile_term(
                 body,
             )?;
             (
-                body.info.0.node.clone(),
+                body.info.0.clone(),
                 TermNode::Let {
                     arg: arg.into(),
                     body: body.into(),
@@ -647,18 +619,18 @@ fn compile_term(
         }
         lang::Term::TypeAbstract(name, body) => {
             let body = compile_term(&context.type_pushed(Some(name.value.clone())), body)?;
-            (TypeNode::Forall(body.info.0.into()), body.node)
+            (Type::Forall(body.info.0.into()), body.node)
         }
         lang::Term::TypeApply(body, ty) => {
             let body = compile_term(context, body)?;
-            let ty = compile_type(context, ty)?.forget();
-            if let TypeNode::Forall(inner) = &body.info.0.node {
-                let new_ty = substitute_top_type(&inner, &ty);
-                (new_ty.node, body.node)
+            let ty = compile_type(context, ty)?.forget_span();
+            if let Type::Forall(inner) = &body.info.0 {
+                let new_ty = substitute_top_type(inner, &ty);
+                (new_ty, body.node)
             } else {
                 return Err(Error::expected_input_found(
                     body.info.1,
-                    std::iter::once(Some(format!("Forall type"))),
+                    std::iter::once(Some("Forall type".to_string())),
                     Some(format!("{}", body.info.0)),
                 ));
             }
@@ -667,10 +639,10 @@ fn compile_term(
             let body_span = &body.span;
             let body = compile_term(context, body)?;
             // TODO: realize type
-            if let TypeNode::Apply(lhs, rhs) = &body.info.0.node {
+            if let Type::Apply(lhs, rhs) = &body.info.0 {
                 // TODO: subtype
                 if lhs == rhs {
-                    (lhs.node.clone(), TermNode::Fix(body.into()).into())
+                    (lhs.as_ref().clone(), TermNode::Fix(body.into()))
                 } else {
                     return Err(Error::custom(
                         body_span.clone(),
@@ -683,32 +655,25 @@ fn compile_term(
             } else {
                 return Err(Error::expected_input_found(
                     body_span.clone(),
-                    std::iter::once(Some(format!("arrow type"))),
+                    std::iter::once(Some("arrow type".to_string())),
                     Some(format!("{}", body.info.0)),
                 ));
             }
         }
         lang::Term::Func(func) => {
-            fn arrow(from: TypeNode<()>, to: TypeNode<()>) -> TypeNode<()> {
-                TypeNode::Arrow(
-                    Type {
-                        info: (),
-                        node: from,
-                    }
-                    .into(),
-                    Type { info: (), node: to }.into(),
-                )
+            fn arrow(dom: Type, codom: Type) -> Type {
+                Type::Arrow(dom.into(), codom.into())
             }
             let (ty, func) = match func.value {
-                lang::Func::Succ => (arrow(TypeNode::Nat, TypeNode::Nat), Func::Succ),
-                lang::Func::Pred => (arrow(TypeNode::Nat, TypeNode::Nat), Func::Pred),
-                lang::Func::IsZero => (arrow(TypeNode::Nat, TypeNode::Bool), Func::IsZero),
+                lang::Func::Succ => (arrow(Type::Nat, Type::Nat), Func::Succ),
+                lang::Func::Pred => (arrow(Type::Nat, Type::Nat), Func::Pred),
+                lang::Func::IsZero => (arrow(Type::Nat, Type::Bool), Func::IsZero),
             };
             (ty, TermNode::Func(func))
         }
     };
     Ok(Term {
-        info: (Type { info: (), node: ty }, term.span()),
+        info: (ty, term.span()),
         node,
     })
 }
@@ -718,7 +683,7 @@ pub fn compile(term: &Spanned<lang::Term>) -> Result<Term<()>> {
     compile_term(&context, term).map(|t| t.forget())
 }
 
-pub fn get_type(term: &Spanned<lang::Term>) -> Result<Type<()>> {
+pub fn get_type(term: &Spanned<lang::Term>) -> Result<Type> {
     let context = Context::default();
     compile_term(&context, term).map(|t| t.info.0)
 }

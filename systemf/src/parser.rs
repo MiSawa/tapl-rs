@@ -127,7 +127,7 @@ fn type_parser() -> impl SimpleParser<Token, Spanned<Type>> {
 
         // { Some Ident, Ty }
         let exists = just(Token::Some)
-            .ignore_then(upper_ident.clone())
+            .ignore_then(upper_ident)
             .then_ignore(just(Token::Comma))
             .then(ty.clone().refcounted())
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
@@ -201,7 +201,7 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
         let upper_ident = select! { Token::UpperIdent(ident) => ident, }.spanned();
 
         // variable
-        let variable = lower_ident.clone().map(Term::Variable).labelled("variable");
+        let variable = lower_ident.map(Term::Variable).labelled("variable");
 
         // unit, true, false, nat
         let val = select! {
@@ -300,7 +300,7 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
                 let span = term.span().start..key.span().end;
                 Spanned {
                     span,
-                    value: Term::Access(term.into(), key).into(),
+                    value: Term::Access(term.into(), key),
                 }
             });
 
@@ -347,9 +347,8 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
         let unpack = just(Token::Let)
             .ignore_then(
                 upper_ident
-                    .clone()
                     .then_ignore(just(Token::Comma))
-                    .then(lower_ident.clone())
+                    .then(lower_ident)
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .then_ignore(just(Token::Equal))

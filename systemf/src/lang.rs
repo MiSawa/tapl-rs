@@ -276,4 +276,3 @@ impl std::fmt::Display for Term {
         }
     }
 }
-
