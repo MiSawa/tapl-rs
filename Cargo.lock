@@ -743,7 +743,6 @@ dependencies = [
  "chumsky",
  "derive_more",
  "rpds",
- "thiserror",
  "util",
 ]
 
