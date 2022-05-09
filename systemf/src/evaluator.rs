@@ -1,4 +1,4 @@
-use crate::compiler::{Func, Index, Term};
+use crate::term::{Func, Index, Term};
 
 trait VarMapper {
     fn on_var(&mut self, depth: usize, index: Index) -> Term;
@@ -201,7 +201,7 @@ pub fn evaluate(term: &Term) -> Term {
 
 #[cfg(test)]
 mod test {
-    use crate::{compiler::Term, prelude::*};
+    use crate::{prelude::*, term::Term};
 
     fn run(input: &str) -> Result<Term, String> {
         let term = crate::parser::parse(input).map_err(|es| format!("{es:?}"))?;

@@ -10,6 +10,7 @@ mod evaluator;
 mod lang;
 mod parser;
 mod prelude;
+mod term;
 
 fn build_report(e: chumsky::error::Simple<String, Span>) -> Report<Span> {
     use chumsky::error::SimpleReason;
