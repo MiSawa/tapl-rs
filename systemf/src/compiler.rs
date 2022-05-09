@@ -567,14 +567,19 @@ fn compile_term(
         }
         lang::Term::TypeAbstract(name, body) => {
             let body = compile_term(&context.type_pushed(Some(name.value.clone())), body)?;
-            (Type::Forall(body.ty.into()), body.term)
+            // wrap with lambda so that the type abstract doesn't get evaluated until it get the
+            // type argument passed.
+            let wrapped = Term::Abstract(body.term.into());
+            (Type::Forall(body.ty.into()), wrapped)
         }
         lang::Term::TypeApply(body, ty) => {
             let body = compile_term(context, body)?;
             let ty = compile_type(context, ty)?.forget_span();
             if let Type::Forall(inner) = &body.ty {
                 let new_ty = apply_top_type(inner, &ty);
-                (new_ty, body.term)
+                // unwrap the lambda introduced in the corresponding TypeAbstract
+                let unwrapped = Term::Apply(body.term.into(), Term::Unit.into());
+                (new_ty, unwrapped)
             } else {
                 return Err(Error::expected_input_found(
                     body.span,
