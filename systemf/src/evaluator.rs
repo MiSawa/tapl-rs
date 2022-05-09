@@ -204,7 +204,7 @@ mod test {
     use crate::{prelude::*, term::Term};
 
     fn run(input: &str) -> Result<Term, String> {
-        let term = crate::parser::parse(input).map_err(|es| format!("{es:?}"))?;
+        let term = crate::parser::parse_term(input).map_err(|es| format!("{es:?}"))?;
         let term = crate::compiler::compile(&term).map_err(|e| format!("{e:?}"))?;
         let term = crate::evaluator::evaluate(&term);
         Ok(term)

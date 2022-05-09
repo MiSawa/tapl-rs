@@ -1,52 +1,77 @@
 use std::rc::Rc;
 
-use rpds::Stack;
+use rpds::{HashTrieMap, Stack};
 
 use crate::{lang, prelude::*, term::*};
 
-trait TypeContext {
-    fn lookup_type_variable(&self, name: &Identifier) -> Option<Index>;
-    fn type_pushed(&self, name: Option<Identifier>) -> Self;
+#[derive(Clone)]
+enum Binding {
+    Type(Identifier),
+    Variable(Option<Identifier>, Rc<Type>),
 }
-
-trait TermContext {
-    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type>)>;
-    fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type>) -> Self;
+#[derive(Default, Clone)]
+pub struct Context {
+    bindings: Stack<Binding>,
+    type_aliases: HashTrieMap<Identifier, Rc<Type>>,
+    term_aliases: HashTrieMap<Identifier, (Rc<Term>, Rc<Type>)>,
 }
-
-#[derive(Default)]
-struct Context {
-    types: Stack<Option<Identifier>>,
-    variables: Stack<(Option<Identifier>, Rc<Type>)>,
-}
-impl TypeContext for Context {
-    fn lookup_type_variable(&self, name: &Identifier) -> Option<Index> {
-        self.types
-            .iter()
-            .enumerate()
-            .find_map(|(i, n)| n.as_ref().filter(|n| n == &name).map(|_| i))
+impl Context {
+    pub fn add_type_alias(&mut self, name: Identifier, ty: Type) {
+        self.type_aliases = self.type_aliases.insert(name, ty.into());
     }
-    fn type_pushed(&self, name: Option<Identifier>) -> Self {
-        let types = self.types.push(name);
-        let variables = self.variables.clone();
-        Self { types, variables }
+    pub fn add_term_alias(&mut self, name: Identifier, term: Term, ty: Type) {
+        self.term_aliases = self.term_aliases.insert(name, (term.into(), ty.into()));
     }
-}
-impl TermContext for Context {
-    fn lookup_variable(&self, name: &Identifier) -> Option<(Index, Rc<Type>)> {
-        self.variables
+
+    fn lookup_type_variable(&self, name: impl AsRef<Identifier>) -> Option<Index> {
+        self.bindings
             .iter()
+            .filter_map(|b| {
+                if let Binding::Type(ty) = b {
+                    Some(ty)
+                } else {
+                    None
+                }
+            })
             .enumerate()
-            .find_map(|(i, (n, ty))| n.as_ref().filter(|n| n == &name).map(|_| (i, ty.clone())))
+            .find_map(|(i, n)| (n == name.as_ref()).then(|| i))
+    }
+    fn lookup_type_alias(&self, name: impl AsRef<Identifier>) -> Option<Rc<Type>> {
+        self.type_aliases.get(name.as_ref()).cloned()
+    }
+    fn type_pushed(&self, name: Identifier) -> Self {
+        let mut ret = self.clone();
+        ret.bindings = ret.bindings.push(Binding::Type(name.clone()));
+        ret
+    }
+
+    fn lookup_variable(&self, name: impl AsRef<Identifier>) -> Option<(Index, Type)> {
+        let mut type_shift = 0;
+        let mut var_depth = 0;
+        for binding in &self.bindings {
+            match binding {
+                Binding::Type(_) => type_shift += 1,
+                Binding::Variable(Some(n), ty) if n == name.as_ref() => {
+                    return Some((var_depth, shift_type(type_shift, ty).unwrap()))
+                }
+                Binding::Variable(_, _) => var_depth += 1,
+            }
+        }
+        None
+    }
+    fn lookup_term_alias(&self, name: impl AsRef<Identifier>) -> Option<(Rc<Term>, Rc<Type>)> {
+        self.term_aliases.get(name.as_ref()).cloned()
     }
     fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type>) -> Self {
-        let types = self.types.clone();
-        let variables = self.variables.push((name, ty));
-        Self { types, variables }
+        let mut ret = self.clone();
+        ret.bindings = ret
+            .bindings
+            .push(Binding::Variable(name.clone(), ty.clone()));
+        ret
     }
 }
 
-fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<Spanned<Type>> {
+pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<Spanned<Type>> {
     let value = match ty.as_ref() {
         lang::Type::Bot => Type::Bot,
         lang::Type::Top => Type::Top,
@@ -69,8 +94,10 @@ fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<
             compile_type(context, rhs)?.forget_span().into(),
         ),
         lang::Type::Variable(name) => {
-            if let Some(i) = context.lookup_type_variable(name.as_ref()) {
+            if let Some(i) = context.lookup_type_variable(name) {
                 Type::Variable(i)
+            } else if let Some(ty) = context.lookup_type_alias(name) {
+                ty.as_ref().clone()
             } else {
                 return Err(Error::custom(
                     ty.span(),
@@ -79,7 +106,7 @@ fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<
             }
         }
         lang::Type::Abstract(var, body) => Type::Abstract(
-            compile_type(&context.type_pushed(Some(var.as_ref().clone())), body)?
+            compile_type(&context.type_pushed(var.as_ref().clone()), body)?
                 .forget_span()
                 .into(),
         ),
@@ -88,12 +115,12 @@ fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<
             compile_type(context, rhs)?.forget_span().into(),
         ),
         lang::Type::Exists(ident, body) => Type::Exists(
-            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?
+            compile_type(&context.type_pushed(ident.as_ref().clone()), body)?
                 .forget_span()
                 .into(),
         ),
         lang::Type::Forall(ident, body) => Type::Forall(
-            compile_type(&context.type_pushed(Some(ident.as_ref().clone())), body)?
+            compile_type(&context.type_pushed(ident.as_ref().clone()), body)?
                 .forget_span()
                 .into(),
         ),
@@ -181,16 +208,13 @@ fn apply_top_type(body: &Type, arg: &Type) -> Type {
     .expect("Apply shouldn't fail")
 }
 
-struct TypeSpannedTerm {
-    ty: Type,
-    span: Span,
-    term: Term,
+pub struct TypeSpannedTerm {
+    pub span: Span,
+    pub ty: Type,
+    pub term: Term,
 }
 
-fn compile_term(
-    context: &(impl TermContext + TypeContext),
-    original: &Spanned<lang::Term>,
-) -> Result<TypeSpannedTerm> {
+pub fn compile_term(context: &Context, original: &Spanned<lang::Term>) -> Result<TypeSpannedTerm> {
     let (ty, term) = match original.as_ref() {
         lang::Term::Unit => (Type::Unit, Term::Unit),
         lang::Term::Bool(v) => (Type::Bool, Term::Bool(*v)),
@@ -234,8 +258,10 @@ fn compile_term(
             }
         }
         lang::Term::Variable(name) => {
-            if let Some((i, ty)) = context.lookup_variable(name.as_ref()) {
-                (ty.as_ref().clone(), Term::Variable(i))
+            if let Some((i, ty)) = context.lookup_variable(name) {
+                (ty, Term::Variable(i))
+            } else if let Some((term, ty)) = context.lookup_term_alias(name) {
+                (ty.as_ref().clone(), term.as_ref().clone())
             } else {
                 return Err(Error::custom(
                     original.span(),
@@ -269,7 +295,7 @@ fn compile_term(
                 } else {
                     return Err(Error::expected_input_found(
                         rhs.span,
-                        std::iter::once(Some(format!("{codom}"))),
+                        std::iter::once(Some(format!("{dom}"))),
                         Some(format!("{rtype}")),
                     ));
                 }
@@ -331,7 +357,7 @@ fn compile_term(
                 let body = compile_term(
                     &context
                         .term_pushed(Some(var.value().clone()), arg_inner)
-                        .type_pushed(Some(ty.value().clone())),
+                        .type_pushed(ty.value().clone()),
                     body,
                 )?;
                 let body_ty = shift_type(-1, &body.ty).map_err(|_| {
@@ -459,7 +485,7 @@ fn compile_term(
             return compile_term(context, &rewritten);
         }
         lang::Term::TypeAbstract(name, body) => {
-            let body = compile_term(&context.type_pushed(Some(name.value.clone())), body)?;
+            let body = compile_term(&context.type_pushed(name.value.clone()), body)?;
             // wrap with lambda so that the type abstract doesn't get evaluated until it get the
             // type argument passed.
             let wrapped = Term::Abstract(body.term.into());
@@ -468,6 +494,7 @@ fn compile_term(
         lang::Term::TypeApply(body, ty) => {
             let body = compile_term(context, body)?;
             let ty = compile_type(context, ty)?.forget_span();
+            // TODO: realize type
             if let Type::Forall(inner) = &body.ty {
                 let new_ty = apply_top_type(inner, &ty);
                 // unwrap the lambda introduced in the corresponding TypeAbstract

@@ -430,7 +430,32 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
     .then_ignore(end())
 }
 
-pub fn parse(s: &str) -> Result<Spanned<Term>, Vec<Error<String>>> {
+#[derive(Clone, derive_more::Display, Debug)]
+pub enum Command {
+    #[display(fmt = "{_0}")]
+    Term(Spanned<Term>),
+    #[display(fmt = "{_0} = {_1}")]
+    TypeAlias(Spanned<Identifier>, Spanned<Type>),
+    #[display(fmt = "{_0} = {_1}")]
+    TermAlias(Spanned<Identifier>, Spanned<Term>),
+}
+
+fn command_parser() -> impl SimpleParser<Token, Command> {
+    let upper_ident = select! { Token::UpperIdent(ident) => ident }.spanned();
+    let lower_ident = select! { Token::LowerIdent(ident) => ident }.spanned();
+    let term = term_parser().map(Command::Term);
+    let type_alias = upper_ident
+        .then_ignore(just(Token::Equal))
+        .then(type_parser())
+        .map(|(name, ty)| Command::TypeAlias(name, ty));
+    let term_alias = lower_ident
+        .then_ignore(just(Token::Equal))
+        .then(term_parser())
+        .map(|(name, term)| Command::TermAlias(name, term));
+    choice((term, type_alias, term_alias))
+}
+
+fn parse_full<T>(s: &str, parser: impl SimpleParser<Token, T>) -> Result<T, Vec<Error<String>>> {
     let len = s.chars().count();
     let eoi = Span {
         start: len,
@@ -441,7 +466,7 @@ pub fn parse(s: &str) -> Result<Spanned<Term>, Vec<Error<String>>> {
             .map(|e| e.map(|e| e.to_string()))
             .collect::<Vec<_>>()
     })?;
-    let terms = term_parser()
+    let value = parser
         .parse(chumsky::Stream::from_iter(
             eoi,
             tokens
@@ -453,7 +478,15 @@ pub fn parse(s: &str) -> Result<Spanned<Term>, Vec<Error<String>>> {
                 .map(|e| e.map(|e| e.to_string()))
                 .collect::<Vec<_>>()
         })?;
-    Ok(terms)
+    Ok(value)
+}
+
+pub fn parse_term(s: &str) -> Result<Spanned<Term>, Vec<Error<String>>> {
+    parse_full(s, term_parser())
+}
+
+pub fn parse_command(s: &str) -> Result<Command, Vec<Error<String>>> {
+    parse_full(s, command_parser())
 }
 
 #[cfg(test)]
