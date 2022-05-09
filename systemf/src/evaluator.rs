@@ -69,17 +69,17 @@ fn substitute_top(base: &Term, replacement: &Term) -> Term {
     impl<'a> VarMapper for M<'a> {
         fn on_var(&mut self, depth: usize, index: Index) -> Term {
             if depth == index {
-                return self.0.clone();
+                shift(1 + depth as isize, self.0)
+            } else {
+                Term::Variable(index)
             }
-            let new_index = if depth < index { index - 1 } else { index };
-            Term::Variable(new_index)
         }
     }
     map_var(base, &mut M(replacement))
 }
 
 fn apply_top(body: &Term, arg: &Term) -> Term {
-    shift(-1, &substitute_top(body, &shift(1, arg)))
+    shift(-1, &substitute_top(body, arg))
 }
 
 fn apply_func(f: Func, arg: &Term) -> Option<Term> {

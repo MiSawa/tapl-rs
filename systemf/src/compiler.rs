@@ -41,7 +41,7 @@ impl Context {
     }
     fn type_pushed(&self, name: Identifier) -> Self {
         let mut ret = self.clone();
-        ret.bindings = ret.bindings.push(Binding::Type(name.clone()));
+        ret.bindings = ret.bindings.push(Binding::Type(name));
         ret
     }
 
@@ -64,9 +64,7 @@ impl Context {
     }
     fn term_pushed(&self, name: Option<Identifier>, ty: Rc<Type>) -> Self {
         let mut ret = self.clone();
-        ret.bindings = ret
-            .bindings
-            .push(Binding::Variable(name.clone(), ty.clone()));
+        ret.bindings = ret.bindings.push(Binding::Variable(name, ty));
         ret
     }
 }
@@ -110,10 +108,20 @@ pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<Spann
                 .forget_span()
                 .into(),
         ),
-        lang::Type::Apply(lhs, rhs) => Type::Apply(
-            compile_type(context, lhs)?.forget_span().into(),
-            compile_type(context, rhs)?.forget_span().into(),
-        ),
+        lang::Type::Apply(lhs, rhs) => {
+            let lhs = compile_type(context, lhs)?;
+            let rhs = compile_type(context, rhs)?;
+            if let Type::Abstract(lhs) = lhs.value() {
+                // TODO: Fix shifting
+                apply_top_type(lhs.as_ref(), rhs.as_ref())
+            } else {
+                return Err(Error::expected_input_found(
+                    lhs.span(),
+                    std::iter::once(Some("Type abstraction".into())),
+                    Some(format!("{lhs}")),
+                ));
+            }
+        }
         lang::Type::Exists(ident, body) => Type::Exists(
             compile_type(&context.type_pushed(ident.as_ref().clone()), body)?
                 .forget_span()
@@ -155,10 +163,6 @@ fn map_type_var<E>(ty: &Type, mapper: &mut impl TypeVarMapper<E>) -> Result<Type
             ),
             Type::Variable(i) => mapper.on_var(depth, *i)?,
             Type::Abstract(body) => Type::Abstract(rec(body, mapper, depth + 1)?.into()),
-            Type::Apply(lhs, rhs) => Type::Apply(
-                rec(lhs, mapper, depth)?.into(),
-                rec(rhs, mapper, depth)?.into(),
-            ),
             Type::Exists(body) => Type::Exists(rec(body, mapper, depth + 1)?.into()),
             Type::Forall(body) => Type::Forall(rec(body, mapper, depth + 1)?.into()),
         })
@@ -189,23 +193,17 @@ fn substitute_top_type(base: &Type, replacement: &Type) -> Type {
     impl<'a> TypeVarMapper<Never> for M<'a> {
         fn on_var(&mut self, depth: usize, index: Index) -> Result<Type, Never> {
             if depth == index {
-                return Ok(self.0.clone());
+                return Ok(
+                    shift_type(1 + depth as isize, self.0).expect("Positive shift shouldn't fail")
+                );
             }
-            let new_index = if depth < index { index - 1 } else { index };
-            Ok(Type::Variable(new_index))
+            Ok(Type::Variable(index))
         }
     }
     map_type_var(base, &mut M(replacement)).expect("Shouldn't fail")
 }
 fn apply_top_type(body: &Type, arg: &Type) -> Type {
-    shift_type(
-        -1,
-        &substitute_top_type(
-            body,
-            &shift_type(1, arg).expect("Positive shift shouldn't fail"),
-        ),
-    )
-    .expect("Apply shouldn't fail")
+    shift_type(-1, &substitute_top_type(body, arg)).expect("Apply shouldn't fail")
 }
 
 pub struct TypeSpannedTerm {
@@ -485,9 +483,14 @@ pub fn compile_term(context: &Context, original: &Spanned<lang::Term>) -> Result
             return compile_term(context, &rewritten);
         }
         lang::Term::TypeAbstract(name, body) => {
-            let body = compile_term(&context.type_pushed(name.value.clone()), body)?;
             // wrap with lambda so that the type abstract doesn't get evaluated until it get the
             // type argument passed.
+            let body = compile_term(
+                &context
+                    .type_pushed(name.value.clone())
+                    .term_pushed(None, Type::Unit.into()),
+                body,
+            )?;
             let wrapped = Term::Abstract(body.term.into());
             (Type::Forall(body.ty.into()), wrapped)
         }

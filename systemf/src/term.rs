@@ -15,7 +15,6 @@ pub enum Type {
     Arrow(Rc<Self>, Rc<Self>),
     Variable(Index),
     Abstract(Rc<Self>),
-    Apply(Rc<Self>, Rc<Self>),
     Exists(Rc<Self>),
     Forall(Rc<Self>),
 }
@@ -45,7 +44,6 @@ impl std::fmt::Display for Type {
             Type::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
             Type::Variable(index) => f.write_fmt(format_args!("T_{index}")),
             Type::Abstract(body) => f.write_fmt(format_args!("lambda _Type. {body}")),
-            Type::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
             Type::Exists(body) => f.write_fmt(format_args!("{{*_Type, {body}}}")),
             Type::Forall(body) => f.write_fmt(format_args!("All _Type. {body}")),
         }
