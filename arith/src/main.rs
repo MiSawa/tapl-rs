@@ -39,7 +39,14 @@ fn eval(input: String) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    repl::start_repl(eval)?;
+    struct R;
+    impl repl::Repl for R {
+        type Error = anyhow::Error;
+        fn evaluate(&mut self, input: String) -> Result<(), Self::Error> {
+            eval(input)
+        }
+    }
+    repl::start_repl(R)?;
     Ok(())
 }
 

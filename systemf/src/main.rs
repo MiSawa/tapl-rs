@@ -115,6 +115,7 @@ fn show_help() {
     println!(
         "{}",
         r#"
+term                -- same as :evaluate term
 :tokenize   term    -- show tokenized term
 :parse      term    -- show parsed term
 :typeof     term    -- show the type of the compiled term
@@ -174,6 +175,16 @@ fn eval(input: String) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    repl::start_repl(eval)?;
+    println!("Hi, this is a System F REPL. :h to show help");
+    println!();
+    struct R;
+    impl repl::Repl for R {
+        type Error = anyhow::Error;
+        const HISTORY: Option<&'static str> = Some("/tmp/systemf.history");
+        fn evaluate(&mut self, input: String) -> Result<(), Self::Error> {
+            eval(input)
+        }
+    }
+    repl::start_repl(R)?;
     Ok(())
 }

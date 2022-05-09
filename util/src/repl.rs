@@ -9,11 +9,17 @@ pub enum Error<E> {
     EvalError(E),
 }
 
-pub fn start_repl<E: std::fmt::Debug>(
-    mut eval: impl FnMut(String) -> Result<(), E>,
-) -> Result<(), Error<E>> {
+pub trait Repl {
+    type Error: std::fmt::Debug;
+    const HISTORY: Option<&'static str> = None;
+    fn evaluate(&mut self, input: String) -> Result<(), Self::Error>;
+}
+
+pub fn start_repl<R: Repl>(mut repl: R) -> Result<(), Error<R::Error>> {
     let mut editor = Editor::<()>::new();
-    editor.load_history("history.txt").ok();
+    if let Some(history) = R::HISTORY {
+        editor.load_history(history).ok();
+    }
     let mut input: Option<String> = None;
     loop {
         match editor.readline(">> ") {
@@ -34,7 +40,10 @@ pub fn start_repl<E: std::fmt::Debug>(
                     line
                 };
                 editor.add_history_entry(input.as_str());
-                eval(input).map_err(Error::EvalError)?
+                repl.evaluate(input).map_err(Error::EvalError)?;
+                if let Some(history) = R::HISTORY {
+                    editor.save_history(history).map_err(Error::Readline)?;
+                }
             }
             Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
                 println!("Bye!");
