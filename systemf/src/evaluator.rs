@@ -272,11 +272,44 @@ mod test {
             .unwrap(),
             Term::Nat(6)
         );
+        assert_eq!(
+            run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->Nat}}
+                in (lambda v: X. x.f v) x.a
+            "#)
+            .unwrap(),
+            Term::Nat(6)
+        );
         assert!(run(r#"
                 let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
                     as {Some X, {a:X, f:X->X}}
                 in (x.f x.a)
             "#)
-        .is_err())
+        .is_err());
+        assert!(run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->X}}
+                in x.a
+            "#)
+        .is_err());
+        assert!(run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->X}}
+                in x
+            "#)
+        .is_err());
+        assert_eq!(
+            run(r#"
+                (
+                    lambda A.
+                    let {X, x} = {*Nat, {a=5, f=succ}}
+                        as {Some X, {a:X, f:X->Nat}}
+                    in lambda a: A. (x.f x.a)
+                ) [Bool] true
+            "#)
+            .unwrap(),
+            Term::Nat(6)
+        );
     }
 }

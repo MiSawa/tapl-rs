@@ -4,12 +4,17 @@ use rpds::{HashTrieMap, Stack};
 
 use crate::{lang, prelude::*, term::*};
 
-#[derive(Clone)]
+#[derive(Clone, derive_more::Display, Debug)]
 enum Binding {
+    #[display(fmt = "Type({_0})")]
     Type(Identifier),
+    #[display(fmt = "Variable({_0:?}, {_1})")]
     Variable(Option<Identifier>, Rc<Type>),
 }
-#[derive(Default, Clone)]
+#[derive(Default, Clone, derive_more::Display, Debug)]
+#[display(
+    fmt = "{{bindings={bindings}, type_aliases={type_aliases}, term_aliases={term_aliases:?}}}"
+)]
 pub struct Context {
     bindings: Stack<Binding>,
     type_aliases: HashTrieMap<Identifier, Rc<Type>>,
@@ -354,8 +359,8 @@ pub fn compile_term(context: &Context, original: &Spanned<lang::Term>) -> Result
             if let Type::Exists(arg_inner) = arg.ty {
                 let body = compile_term(
                     &context
-                        .term_pushed(Some(var.value().clone()), arg_inner)
-                        .type_pushed(ty.value().clone()),
+                        .type_pushed(ty.value().clone())
+                        .term_pushed(Some(var.value().clone()), arg_inner),
                     body,
                 )?;
                 let body_ty = shift_type(-1, &body.ty).map_err(|_| {
