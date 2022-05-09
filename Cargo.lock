@@ -738,7 +738,6 @@ dependencies = [
 name = "systemf"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ariadne",
  "chumsky",
  "derive_more",

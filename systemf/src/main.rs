@@ -1,4 +1,3 @@
-use anyhow::Result;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 use util::repl;
@@ -192,7 +191,7 @@ term                -- same as :evaluate term
     }
 }
 impl repl::Repl for Repl {
-    type Error = anyhow::Error;
+    type Error = std::io::Error;
     const HISTORY: Option<&'static str> = Some("/tmp/systemf.history");
     fn evaluate(&mut self, input: String) -> Result<(), Self::Error> {
         if input.is_empty() {
@@ -207,7 +206,7 @@ impl repl::Repl for Repl {
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Hi, this is a System F REPL. :h to show help");
     println!();
     repl::start_repl(Repl::default())?;
