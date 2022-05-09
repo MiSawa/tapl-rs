@@ -283,6 +283,12 @@ mod test {
         );
         assert!(run(r#"
                 let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->Nat}}
+                in succ x.a
+            "#)
+        .is_err());
+        assert!(run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
                     as {Some X, {a:X, f:X->X}}
                 in (x.f x.a)
             "#)
