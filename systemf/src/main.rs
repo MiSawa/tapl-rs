@@ -111,27 +111,29 @@ impl Repl {
     }
 
     fn evaluate<'i>(&mut self, input: &'i str) -> CommandResult<'i> {
-        let command = parser::parse_command(input).map_err(|es| (input, es))?;
-        match command {
-            parser::Command::Term(term) => {
-                let term =
-                    compiler::compile_term(&self.context, &term).map_err(|e| (input, vec![e]))?;
-                let term = evaluator::evaluate(&term.term);
-                println!("{term}");
-            }
-            parser::Command::TypeAlias(name, ty) => {
-                let ty =
-                    compiler::compile_type(&self.context, &ty).map_err(|e| (input, vec![e]))?;
-                println!("{ty}");
-                self.context
-                    .add_type_alias(name.forget_span(), ty.forget_span());
-            }
-            parser::Command::TermAlias(name, term) => {
-                let term =
-                    compiler::compile_term(&self.context, &term).map_err(|e| (input, vec![e]))?;
-                println!("{} : {}", term.term, term.ty);
-                self.context
-                    .add_term_alias(name.forget_span(), term.term, term.ty);
+        let commands = parser::parse_commands(input).map_err(|es| (input, es))?;
+        for command in commands {
+            match command {
+                parser::Command::Term(term) => {
+                    let term = compiler::compile_term(&self.context, &term)
+                        .map_err(|e| (input, vec![e]))?;
+                    let term = evaluator::evaluate(&term.term);
+                    println!("{term}");
+                }
+                parser::Command::TypeAlias(name, ty) => {
+                    let ty =
+                        compiler::compile_type(&self.context, &ty).map_err(|e| (input, vec![e]))?;
+                    println!("{ty}");
+                    self.context
+                        .add_type_alias(name.forget_span(), ty.forget_span());
+                }
+                parser::Command::TermAlias(name, term) => {
+                    let term = compiler::compile_term(&self.context, &term)
+                        .map_err(|e| (input, vec![e]))?;
+                    println!("{} : {}", term.term, term.ty);
+                    self.context
+                        .add_term_alias(name.forget_span(), term.term, term.ty);
+                }
             }
         }
         Ok(())

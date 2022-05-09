@@ -427,7 +427,6 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
         ))
     })
     .labelled("term")
-    .then_ignore(end())
 }
 
 #[derive(Clone, derive_more::Display, Debug)]
@@ -452,7 +451,13 @@ fn command_parser() -> impl SimpleParser<Token, Command> {
         .then_ignore(just(Token::Equal))
         .then(term_parser())
         .map(|(name, term)| Command::TermAlias(name, term));
-    choice((term, type_alias, term_alias))
+    choice((type_alias, term_alias, term))
+}
+
+fn commands_parser() -> impl SimpleParser<Token, Vec<Command>> {
+    command_parser()
+        .separated_by(just(Token::Semicolon))
+        .allow_trailing()
 }
 
 fn parse_full<T>(s: &str, parser: impl SimpleParser<Token, T>) -> Result<T, Vec<Error<String>>> {
@@ -467,6 +472,7 @@ fn parse_full<T>(s: &str, parser: impl SimpleParser<Token, T>) -> Result<T, Vec<
             .collect::<Vec<_>>()
     })?;
     let value = parser
+        .then_ignore(end())
         .parse(chumsky::Stream::from_iter(
             eoi,
             tokens
@@ -485,8 +491,8 @@ pub fn parse_term(s: &str) -> Result<Spanned<Term>, Vec<Error<String>>> {
     parse_full(s, term_parser())
 }
 
-pub fn parse_command(s: &str) -> Result<Command, Vec<Error<String>>> {
-    parse_full(s, command_parser())
+pub fn parse_commands(s: &str) -> Result<Vec<Command>, Vec<Error<String>>> {
+    parse_full(s, commands_parser())
 }
 
 #[cfg(test)]
