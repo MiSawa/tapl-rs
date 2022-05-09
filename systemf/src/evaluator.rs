@@ -214,29 +214,48 @@ mod test {
     fn test_letrec() {
         assert_eq!(
             run(r#"
-letrec iseven: Nat->Bool =
-    lambda x: Nat.
-        if iszero x
-        then true
-        else if iszero (pred x)
-        then false
-        else iseven (pred (pred x))
-in iseven 7
+                letrec iseven: Nat->Bool =
+                    lambda x: Nat.
+                        if iszero x
+                        then true
+                        else if iszero (pred x)
+                        then false
+                        else iseven (pred (pred x))
+                in iseven 7
             "#)
             .unwrap(),
             Term::Bool(false)
         );
         assert_eq!(
             run(r#"
-letrec add: Nat -> Nat -> Nat =
-    lambda x: Nat.
-        if iszero x
-        then (lambda y: Nat. y)
-        else (lambda y: Nat. (succ (add (pred x) y)))
-in add 2 3
+                letrec add: Nat -> Nat -> Nat =
+                    lambda x: Nat.
+                        if iszero x
+                        then (lambda y: Nat. y)
+                        else (lambda y: Nat. (succ (add (pred x) y)))
+                in add 2 3
             "#)
             .unwrap(),
             Term::Nat(5)
         )
+    }
+
+    #[test]
+    fn test_existential() {
+        assert_eq!(
+            run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->Nat}}
+                in (x.f x.a)
+            "#)
+            .unwrap(),
+            Term::Nat(6)
+        );
+        assert!(run(r#"
+                let {X, x} = {*Nat, {a=5, f=lambda x:Nat. succ(x)}}
+                    as {Some X, {a:X, f:X->X}}
+                in (x.f x.a)
+            "#)
+        .is_err())
     }
 }
