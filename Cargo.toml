@@ -7,3 +7,5 @@ members = [
     "subtyped",
     "systemf",
 ]
+default-members = [ "systemf" ]
+
