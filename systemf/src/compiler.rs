@@ -45,7 +45,7 @@ impl std::fmt::Display for Type {
                 f.write_str("}")
             }
             Type::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
-            Type::Variable(index) => f.write_fmt(format_args!("{index}")),
+            Type::Variable(index) => f.write_fmt(format_args!("T_{index}")),
             Type::Abstract(body) => f.write_fmt(format_args!("lambda _Type. {body}")),
             Type::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
             Type::Exists(body) => f.write_fmt(format_args!("{{*_Type, {body}}}")),
@@ -227,13 +227,13 @@ fn compile_type(context: &impl TypeContext, ty: &Spanned<lang::Type>) -> Result<
     })
 }
 
-trait TypeVarMapper {
-    fn on_var(&mut self, depth: usize, index: Index) -> Type;
+trait TypeVarMapper<E> {
+    fn on_var(&mut self, depth: usize, index: Index) -> Result<Type, E>;
 }
 
-fn map_type_var(ty: &Type, mapper: &mut impl TypeVarMapper) -> Type {
-    fn rec(ty: &Type, mapper: &mut impl TypeVarMapper, depth: usize) -> Type {
-        match ty {
+fn map_type_var<E>(ty: &Type, mapper: &mut impl TypeVarMapper<E>) -> Result<Type, E> {
+    fn rec<E>(ty: &Type, mapper: &mut impl TypeVarMapper<E>, depth: usize) -> Result<Type, E> {
+        Ok(match ty {
             Type::Bot => Type::Bot,
             Type::Top => Type::Top,
             Type::Unit => Type::Unit,
@@ -242,56 +242,66 @@ fn map_type_var(ty: &Type, mapper: &mut impl TypeVarMapper) -> Type {
             Type::Record(entries) => Type::Record(
                 entries
                     .iter()
-                    .map(|(k, v)| (k.clone(), rec(v, mapper, depth).into()))
-                    .collect(),
+                    .map::<Result<_, _>, _>(|(k, v)| Ok((k.clone(), rec(v, mapper, depth)?.into())))
+                    .collect::<Result<_, _>>()?,
             ),
             Type::Arrow(lhs, rhs) => Type::Arrow(
-                rec(lhs, mapper, depth).into(),
-                rec(rhs, mapper, depth).into(),
+                rec(lhs, mapper, depth)?.into(),
+                rec(rhs, mapper, depth)?.into(),
             ),
-            Type::Variable(i) => mapper.on_var(depth, *i),
-            Type::Abstract(body) => Type::Abstract(rec(body, mapper, depth + 1).into()),
+            Type::Variable(i) => mapper.on_var(depth, *i)?,
+            Type::Abstract(body) => Type::Abstract(rec(body, mapper, depth + 1)?.into()),
             Type::Apply(lhs, rhs) => Type::Apply(
-                rec(lhs, mapper, depth).into(),
-                rec(rhs, mapper, depth).into(),
+                rec(lhs, mapper, depth)?.into(),
+                rec(rhs, mapper, depth)?.into(),
             ),
-            Type::Exists(body) => Type::Exists(rec(body, mapper, depth + 1).into()),
-            Type::Forall(body) => Type::Forall(rec(body, mapper, depth + 1).into()),
-        }
+            Type::Exists(body) => Type::Exists(rec(body, mapper, depth + 1)?.into()),
+            Type::Forall(body) => Type::Forall(rec(body, mapper, depth + 1)?.into()),
+        })
     }
     rec(ty, mapper, 0)
 }
-fn shift_type(diff: isize, ty: &Type) -> Type {
+
+#[derive(Debug)]
+struct ShiftFail;
+fn shift_type(diff: isize, ty: &Type) -> Result<Type, ShiftFail> {
     struct M(isize);
-    impl TypeVarMapper for M {
-        fn on_var(&mut self, depth: usize, index: Index) -> Type {
+    impl TypeVarMapper<ShiftFail> for M {
+        fn on_var(&mut self, depth: usize, index: Index) -> Result<Type, ShiftFail> {
             let new_index = if index >= depth {
-                (index as isize + self.0)
-                    .try_into()
-                    .expect("Something went wrong while substituting a type variable")
+                usize::try_from(index as isize + self.0).map_err(|_| ShiftFail)?
             } else {
                 index
             };
-            Type::Variable(new_index)
+            Ok(Type::Variable(new_index))
         }
     }
     map_type_var(ty, &mut M(diff))
 }
 fn substitute_top_type(base: &Type, replacement: &Type) -> Type {
+    // TODO: Use never type once stabilized
+    type Never = ();
     struct M<'a>(&'a Type);
-    impl<'a> TypeVarMapper for M<'a> {
-        fn on_var(&mut self, depth: usize, index: Index) -> Type {
+    impl<'a> TypeVarMapper<Never> for M<'a> {
+        fn on_var(&mut self, depth: usize, index: Index) -> Result<Type, Never> {
             if depth == index {
-                return self.0.clone();
+                return Ok(self.0.clone());
             }
             let new_index = if depth < index { index - 1 } else { index };
-            Type::Variable(new_index)
+            Ok(Type::Variable(new_index))
         }
     }
-    map_type_var(base, &mut M(replacement))
+    map_type_var(base, &mut M(replacement)).expect("Shouldn't fail")
 }
 fn apply_top_type(body: &Type, arg: &Type) -> Type {
-    shift_type(-1, &substitute_top_type(body, &shift_type(1, arg)))
+    shift_type(
+        -1,
+        &substitute_top_type(
+            body,
+            &shift_type(1, arg).expect("Positive shift shouldn't fail"),
+        ),
+    )
+    .expect("Apply shouldn't fail")
 }
 
 struct TypeSpannedTerm {
@@ -447,10 +457,16 @@ fn compile_term(
                         .type_pushed(Some(ty.value().clone())),
                     body,
                 )?;
-                (
-                    body.ty.clone(),
-                    Term::Unpack(arg.term.into(), body.term.into()),
-                )
+                let body_ty = shift_type(-1, &body.ty).map_err(|_| {
+                    Error::custom(
+                        body.span,
+                        format!(
+                            "Scoping error: The type of unpack body {} contains the package type",
+                            body.ty
+                        ),
+                    )
+                })?;
+                (body_ty, Term::Unpack(arg.term.into(), body.term.into()))
             } else {
                 return Err(Error::expected_input_found(
                     arg.span,
