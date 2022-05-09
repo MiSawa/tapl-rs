@@ -241,6 +241,27 @@ mod test {
     }
 
     #[test]
+    fn test_fib() {
+        assert_eq!(
+            run(r#"
+                letrec add: Nat -> Nat -> Nat =
+                    lambda x: Nat.
+                        if iszero x
+                        then (lambda y: Nat. y)
+                        else (lambda y: Nat. (succ (add (pred x) y)))
+                in letrec fib: Nat -> Nat =
+                    lambda n: Nat.
+                        if iszero (pred n)
+                        then n
+                        else add (fib (pred n)) (fib (pred (pred n)))
+                in fib 10
+            "#)
+            .unwrap(),
+            Term::Nat(55)
+        )
+    }
+
+    #[test]
     fn test_existential() {
         assert_eq!(
             run(r#"
