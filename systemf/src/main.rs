@@ -122,9 +122,8 @@ impl Repl {
                 parser::Command::TypeAlias(name, ty) => {
                     let ty =
                         compiler::compile_type(&self.context, &ty).map_err(|e| (input, vec![e]))?;
-                    println!("{ty}");
-                    self.context
-                        .add_type_alias(name.forget_span(), ty.forget_span());
+                    println!("{} :: {}", ty.ty, ty.kind);
+                    self.context.add_type_alias(name.forget_span(), ty.ty);
                 }
                 parser::Command::TermAlias(name, term) => {
                     let term = compiler::compile_term(&self.context, &term)

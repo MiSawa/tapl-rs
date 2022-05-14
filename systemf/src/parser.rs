@@ -3,7 +3,7 @@ use std::rc::Rc;
 use chumsky::prelude::*;
 
 use crate::{
-    lang::{Func, FuncToken, Term, Token, Type, TypeToken, ValueToken},
+    lang::{Func, FuncToken, Kind, Term, Token, Type, TypeBound, TypeToken, ValueToken},
     prelude::*,
 };
 
@@ -48,6 +48,9 @@ pub fn lexer() -> impl SimpleParser<char, Vec<Spanned<Token>>> {
         just('=').to(Token::Equal),
         just('*').to(Token::Star),
         just("->").to(Token::Arrow),
+        just("=>").to(Token::DArrow),
+        just("<:").to(Token::LtColon),
+        just("::").to(Token::ColonColon),
     ));
     let keywords = choice((
         text::keyword("lambda").to(Token::Lambda),
@@ -90,6 +93,42 @@ pub fn lexer() -> impl SimpleParser<char, Vec<Spanned<Token>>> {
     token.spanned().padded().repeated().then_ignore(end())
 }
 
+fn opt_type_bound_parser(
+    ty: impl SimpleParser<Token, Spanned<Type>>,
+) -> impl SimpleParser<Token, Spanned<TypeBound>> {
+    let ty = just(Token::LtColon).ignore_then(ty.refcounted().map(TypeBound::Type));
+    let kind = just(Token::ColonColon)
+        .ignore_then(kind_parser().refcounted())
+        .map(TypeBound::Kind);
+    let unbounded = empty().to(TypeBound::Unbounded);
+    choice((ty, kind, unbounded)).spanned()
+}
+
+fn kind_parser() -> impl SimpleParser<Token, Spanned<Kind>> {
+    recursive(|kind: Recursive<_, Spanned<Kind>, _>| {
+        let atom = choice((
+            just(Token::Star).to(Kind::Star),
+            kind.delimited_by(just(Token::LParen), just(Token::RParen))
+                .map(|k| k.forget_span()),
+        ))
+        .spanned();
+        let arrow = atom
+            .clone()
+            .then_ignore(just(Token::DArrow))
+            .repeated()
+            .then(atom)
+            .foldr(|lhs, rhs| {
+                let span = merge_span(&lhs.span(), &rhs.span());
+                Spanned {
+                    span,
+                    value: Kind::Arrow(lhs.into(), rhs.into()),
+                }
+            });
+        arrow
+    })
+    .labelled("kind")
+}
+
 fn type_parser() -> impl SimpleParser<Token, Spanned<Type>> {
     recursive(|ty: Recursive<_, Spanned<Type>, _>| {
         // ident
@@ -126,13 +165,14 @@ fn type_parser() -> impl SimpleParser<Token, Spanned<Type>> {
             .map(Type::Record)
             .labelled("record_type");
 
-        // { Some Ident, Ty }
+        // { Some Ident Bound, Ty }
         let exists = just(Token::Some)
             .ignore_then(upper_ident)
+            .then(opt_type_bound_parser(ty.clone()).refcounted())
             .then_ignore(just(Token::Comma))
             .then(ty.clone().refcounted())
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
-            .map(|(ident, body)| Type::Exists(ident, body))
+            .map(|((ident, bound), body)| Type::Exists(ident, bound, body))
             .labelled("exists_type");
 
         let atom = choice((
@@ -172,21 +212,27 @@ fn type_parser() -> impl SimpleParser<Token, Spanned<Type>> {
                 }
             });
 
-        // All Ident . Ty
+        // All Ident Bound. Ty
         let forall = just(Token::All)
             .ignore_then(upper_ident)
+            .then(opt_type_bound_parser(ty.clone()).refcounted())
             .then_ignore(just(Token::Dot))
             .then(ty.clone().refcounted())
-            .map(|(ident, body)| Type::Forall(ident, body))
+            .map(|((ident, bound), body)| Type::Forall(ident, bound, body))
             .spanned()
             .labelled("forall_type");
 
-        // lambda Ident. Ty
+        // lambda Ident Bound. Ty
         let lambda = just(Token::Lambda)
             .ignore_then(upper_ident)
+            .then(
+                just(Token::ColonColon)
+                    .ignore_then(kind_parser().refcounted())
+                    .or_not(),
+            )
             .then_ignore(just(Token::Dot))
             .then(ty.clone().refcounted())
-            .map(|(ident, body)| Type::Abstract(ident, body))
+            .map(|((ident, kind), body)| Type::Abstract(ident, kind, body))
             .spanned()
             .labelled("abstract_type");
 
@@ -379,7 +425,7 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
         let abs = just(Token::Lambda)
             .ignore_then(maybe_anonymous_lower_ident.clone())
             .then_ignore(just(Token::Colon))
-            .then(type_parser())
+            .then(ty.clone())
             .then_ignore(just(Token::Dot))
             .then(term.clone())
             .map(|((var, ty), body)| Term::Abstract(var, ty.into(), body.into()))
@@ -388,9 +434,14 @@ fn term_parser() -> impl SimpleParser<Token, Spanned<Term>> {
 
         let type_abs = just(Token::Lambda)
             .ignore_then(upper_ident)
+            .then(opt_type_bound_parser(ty.clone()).refcounted())
             .then_ignore(just(Token::Dot))
             .then(term.clone())
-            .map(|(var, body)| Term::TypeAbstract(var, body.into()))
+            .map(|((var, bound), body)| Term::TypeAbstract {
+                var,
+                bound,
+                body: body.into(),
+            })
             .spanned()
             .labelled("type_abstract");
 

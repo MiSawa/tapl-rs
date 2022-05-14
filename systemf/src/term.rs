@@ -4,6 +4,14 @@ use crate::prelude::*;
 
 pub type Index = usize;
 
+#[derive(PartialEq, Eq, Clone, derive_more::Display, Debug)]
+pub enum Kind {
+    #[display(fmt = "*")]
+    Star,
+    #[display(fmt = "({_0} -> {_1})")]
+    Arrow(Rc<Self>, Rc<Self>),
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Type {
     Bot,
@@ -13,10 +21,10 @@ pub enum Type {
     Nat,
     Record(Vec<(Identifier, Rc<Self>)>),
     Arrow(Rc<Self>, Rc<Self>),
-    Variable(Index),
-    Abstract(Rc<Self>),
-    Exists(Rc<Self>),
-    Forall(Rc<Self>),
+    Variable { index: Index, bound: Rc<Bound> },
+    Abstract { body: Rc<Self>, arg_kind: Rc<Kind> },
+    Exists { bound: Rc<Bound>, body: Rc<Self> },
+    Forall { bound: Rc<Bound>, body: Rc<Self> },
 }
 
 impl std::fmt::Display for Type {
@@ -42,12 +50,22 @@ impl std::fmt::Display for Type {
                 f.write_str("}")
             }
             Type::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
-            Type::Variable(index) => f.write_fmt(format_args!("T_{index}")),
-            Type::Abstract(body) => f.write_fmt(format_args!("lambda _Type. {body}")),
-            Type::Exists(body) => f.write_fmt(format_args!("{{*_Type, {body}}}")),
-            Type::Forall(body) => f.write_fmt(format_args!("All _Type. {body}")),
+            Type::Variable { index, .. } => f.write_fmt(format_args!("T_{index}")),
+            Type::Abstract { body, .. } => f.write_fmt(format_args!("lambda _Type. {body}")),
+            Type::Exists { bound, body } => f.write_fmt(format_args!("{{*_Type, {body}}}")),
+            Type::Forall { bound, body } => f.write_fmt(format_args!("All _Type. {body}")),
         }
     }
+}
+
+#[derive(PartialEq, Eq, Clone, derive_more::Display, Debug)]
+pub enum Bound {
+    #[display(fmt = "")]
+    Unbounded,
+    #[display(fmt = "<: {_0}")]
+    Type(Type),
+    #[display(fmt = ":: {_0}")]
+    Kind(Kind),
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, derive_more::Display, Debug)]

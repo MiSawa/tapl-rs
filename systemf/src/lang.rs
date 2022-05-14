@@ -71,6 +71,12 @@ pub enum Token {
 
     #[display(fmt = "->")]
     Arrow,
+    #[display(fmt = "=>")]
+    DArrow,
+    #[display(fmt = "<:")]
+    LtColon,
+    #[display(fmt = "::")]
+    ColonColon,
 
     #[display(fmt = "lambda")]
     Lambda,
@@ -108,6 +114,30 @@ pub enum Token {
     LowerIdent(Identifier),
 }
 
+#[derive(Clone, derive_more::Display, Debug)]
+pub enum Kind {
+    #[display(fmt = "*")]
+    Star,
+    #[display(fmt = "({_0} -> {_1})")]
+    Arrow(Rc<Spanned<Self>>, Rc<Spanned<Self>>),
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeBound {
+    Unbounded,
+    Type(Rc<Spanned<Type>>),
+    Kind(Rc<Spanned<Kind>>),
+}
+impl std::fmt::Display for TypeBound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeBound::Unbounded => Ok(()),
+            TypeBound::Type(ty) => f.write_fmt(format_args!(" <: {ty}")),
+            TypeBound::Kind(kind) => f.write_fmt(format_args!(" :: {kind}")),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Type {
     Bot,
@@ -118,10 +148,22 @@ pub enum Type {
     Record(Vec<(Spanned<Identifier>, Rc<Spanned<Self>>)>),
     Arrow(Rc<Spanned<Self>>, Rc<Spanned<Self>>),
     Variable(Spanned<Identifier>),
-    Abstract(Spanned<Identifier>, Rc<Spanned<Self>>),
+    Abstract(
+        Spanned<Identifier>,
+        Option<Rc<Spanned<Kind>>>,
+        Rc<Spanned<Self>>,
+    ),
     Apply(Rc<Spanned<Self>>, Rc<Spanned<Self>>),
-    Exists(Spanned<Identifier>, Rc<Spanned<Self>>),
-    Forall(Spanned<Identifier>, Rc<Spanned<Self>>),
+    Exists(
+        Spanned<Identifier>,
+        Rc<Spanned<TypeBound>>,
+        Rc<Spanned<Self>>,
+    ),
+    Forall(
+        Spanned<Identifier>,
+        Rc<Spanned<TypeBound>>,
+        Rc<Spanned<Self>>,
+    ),
 }
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -147,10 +189,19 @@ impl std::fmt::Display for Type {
             }
             Type::Arrow(lhs, rhs) => f.write_fmt(format_args!("({lhs} -> {rhs})")),
             Type::Variable(name) => f.write_str(name.as_ref()),
-            Type::Abstract(ident, body) => f.write_fmt(format_args!("lambda {ident}. {body}")),
+            Type::Abstract(ident, None, body) => {
+                f.write_fmt(format_args!("lambda {ident}. {body}"))
+            }
+            Type::Abstract(ident, Some(kind), body) => {
+                f.write_fmt(format_args!("lambda {ident} :: {kind}. {body}"))
+            }
             Type::Apply(lhs, rhs) => f.write_fmt(format_args!("({lhs} {rhs})")),
-            Type::Exists(ident, body) => f.write_fmt(format_args!("{{*{ident}, {body}}}")),
-            Type::Forall(ident, body) => f.write_fmt(format_args!("All {ident}. {body}")),
+            Type::Exists(ident, bound, body) => {
+                f.write_fmt(format_args!("{{*{ident}{bound}, {body}}}"))
+            }
+            Type::Forall(ident, bound, body) => {
+                f.write_fmt(format_args!("All {ident}{bound}. {body}"))
+            }
         }
     }
 }
@@ -208,7 +259,11 @@ pub enum Term {
         arg: Rc<Spanned<Self>>,
         body: Rc<Spanned<Self>>,
     },
-    TypeAbstract(Spanned<Identifier>, Rc<Spanned<Self>>),
+    TypeAbstract {
+        var: Spanned<Identifier>,
+        bound: Rc<Spanned<TypeBound>>,
+        body: Rc<Spanned<Self>>,
+    },
     TypeApply(Rc<Spanned<Self>>, Rc<Spanned<Type>>),
     Fix(Rc<Spanned<Self>>),
     Func(Spanned<Func>),
@@ -269,7 +324,9 @@ impl std::fmt::Display for Term {
             Term::LetRec { var, ty, arg, body } => {
                 f.write_fmt(format_args!("letrec {var}: {ty} = {arg} in {body}"))
             }
-            Term::TypeAbstract(var, body) => f.write_fmt(format_args!("lambda {var}. {body}")),
+            Term::TypeAbstract { var, bound, body } => {
+                f.write_fmt(format_args!("lambda {var} {bound}. {body}"))
+            }
             Term::TypeApply(body, ty) => f.write_fmt(format_args!("{body} [{ty}]")),
             Term::Fix(body) => f.write_fmt(format_args!("(fix ({body}))")),
             Term::Func(func) => f.write_fmt(format_args!("{func}")),
