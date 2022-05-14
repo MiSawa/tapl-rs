@@ -91,8 +91,8 @@ fn compile_kind(kind: &Spanned<lang::Kind>) -> Spanned<Kind> {
 fn compile_type_bound(context: &Context, type_bound: &lang::TypeBound) -> Result<Bound> {
     Ok(match type_bound {
         lang::TypeBound::Unbounded => Bound::Unbounded,
-        lang::TypeBound::Type(ty) => Bound::Type(compile_type(context, ty)?.ty),
-        lang::TypeBound::Kind(kind) => Bound::Kind(compile_kind(kind).forget_span()),
+        lang::TypeBound::Type(ty) => Bound::Type(compile_type(context, ty)?.ty.into()),
+        lang::TypeBound::Kind(kind) => Bound::Kind(compile_kind(kind).forget_span().into()),
     })
 }
 
@@ -107,13 +107,12 @@ fn get_kind(context: &Context, ty: &Type) -> Kind {
         | Type::Arrow(_, _) => Kind::Star,
         Type::Variable { bound, .. } => match bound.as_ref() {
             Bound::Unbounded | Bound::Type(_) => Kind::Star,
-            Bound::Kind(kind) => kind.clone(),
+            Bound::Kind(kind) => kind.as_ref().clone(),
         },
         Type::Abstract { body, arg_kind } => {
             Kind::Arrow(arg_kind.clone(), get_kind(context, body).into())
         }
-        Type::Exists { bound, body } => todo!(),
-        Type::Forall { bound, body } => todo!(),
+        Type::Exists { .. } | Type::Forall { .. } => Kind::Star,
     }
 }
 
@@ -121,7 +120,7 @@ fn check_bound(context: &Context, ty: &TypeExtra, bound: &Bound) -> Result<(), S
     match &bound {
         Bound::Unbounded => Ok(()),
         Bound::Type(bound_ty) => check_subtype(context, &ty.ty, bound_ty),
-        Bound::Kind(k) if k == &ty.kind => Ok(()),
+        Bound::Kind(k) if k.as_ref() == &ty.kind => Ok(()),
         Bound::Kind(k) => Err(format!("Expected kind {} but got {}", k, ty.kind)),
     }
 }
@@ -132,34 +131,53 @@ pub struct TypeExtra {
     pub ty: Type,
 }
 
-// TODO: Kind
-pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<TypeExtra> {
-    let value = match ty.as_ref() {
-        lang::Type::Bot => Type::Bot,
-        lang::Type::Top => Type::Top,
-        lang::Type::Unit => Type::Unit,
-        lang::Type::Bool => Type::Bool,
-        lang::Type::Nat => Type::Nat,
-        lang::Type::Record(entries) => Type::Record(
-            // TODO: check kind
-            entries
-                .iter()
-                .map(|(k, v)| Ok((k.value().clone(), compile_type(context, v)?.ty.into())))
-                .collect::<Result<_>>()?,
-        ),
-        lang::Type::Arrow(lhs, rhs) => {
-            // TODO: check kind
-            Type::Arrow(
-                compile_type(context, lhs)?.ty.into(),
-                compile_type(context, rhs)?.ty.into(),
-            )
+impl TypeExtra {
+    fn check_star(self) -> Result<Type> {
+        match &self.kind {
+            Kind::Star => Ok(self.ty),
+            Kind::Arrow(..) => Err(Error::expected_input_found(
+                self.span,
+                std::iter::once(Some(format!("Star kind"))),
+                Some(format!("{}", self.kind)),
+            )),
         }
+    }
+}
+
+pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<TypeExtra> {
+    let (kind, value) = match ty.as_ref() {
+        lang::Type::Bot => (Kind::Star, Type::Bot),
+        lang::Type::Top => (Kind::Star, Type::Top),
+        lang::Type::Unit => (Kind::Star, Type::Unit),
+        lang::Type::Bool => (Kind::Star, Type::Bool),
+        lang::Type::Nat => (Kind::Star, Type::Nat),
+        lang::Type::Record(entries) => (
+            Kind::Star,
+            Type::Record(
+                entries
+                    .iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            k.value().clone(),
+                            compile_type(context, v)?.check_star()?.into(),
+                        ))
+                    })
+                    .collect::<Result<_>>()?,
+            ),
+        ),
+        lang::Type::Arrow(lhs, rhs) => (
+            Kind::Star,
+            Type::Arrow(
+                compile_type(context, lhs)?.check_star()?.into(),
+                compile_type(context, rhs)?.check_star()?.into(),
+            ),
+        ),
         lang::Type::Variable(name) => {
-            // TODO: Return kind
             if let Some((index, bound)) = context.lookup_type_variable(name) {
-                Type::Variable { index, bound }
+                (bound.get_kind().clone(), Type::Variable { index, bound })
             } else if let Some(ty) = context.lookup_type_alias(name) {
-                ty.as_ref().clone()
+                // TODO: kind
+                (Kind::Star, ty.as_ref().clone())
             } else {
                 return Err(Error::custom(
                     ty.span(),
@@ -168,40 +186,57 @@ pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<TypeE
             }
         }
         lang::Type::Abstract(var, kind, body) => {
-            // TODO: return kind
-            let kind = kind
+            let arg_kind: Rc<_> = kind
                 .as_ref()
                 .map(|k| compile_kind(k).forget_span())
-                .unwrap_or(Kind::Star);
-            Type::Abstract {
-                body: compile_type(
-                    &context.type_pushed(var.as_ref().clone(), Bound::Kind(kind.clone()).into()),
-                    body,
-                )?
-                .ty
-                .into(),
-                arg_kind: kind.into(),
-            }
+                .unwrap_or(Kind::Star)
+                .into();
+            let body = compile_type(
+                &context.type_pushed(var.as_ref().clone(), Bound::Kind(arg_kind.clone()).into()),
+                body,
+            )?;
+            let whole_kind = Kind::Arrow(arg_kind.clone(), body.kind.into());
+            (
+                whole_kind,
+                Type::Abstract {
+                    body: body.ty.into(),
+                    arg_kind: arg_kind.into(),
+                },
+            )
         }
         lang::Type::Apply(lhs, rhs) => {
-            // TODO: check and return kind
             let lhs = compile_type(context, lhs)?;
             let rhs = compile_type(context, rhs)?;
+            let ret_kind = if let Kind::Arrow(arg, res) = lhs.kind {
+                if arg.as_ref() == &rhs.kind {
+                    res.as_ref().clone()
+                } else {
+                    return Err(Error::expected_input_found(
+                        rhs.span,
+                        std::iter::once(Some(format!("{arg}"))),
+                        Some(format!("{}", rhs.kind)),
+                    ));
+                }
+            } else {
+                return Err(Error::expected_input_found(
+                    rhs.span,
+                    std::iter::once(Some("Arrow kind".to_string())),
+                    Some(format!("{}", lhs.kind)),
+                ));
+            };
             if let Type::Abstract {
                 body: lhs,
                 arg_kind,
             } = lhs.ty
             {
-                if let Err(msg) =
-                    check_bound(context, &rhs, &Bound::Kind(arg_kind.as_ref().clone()))
-                {
+                if let Err(_) = check_bound(context, &rhs, &Bound::Kind(arg_kind.clone())) {
                     return Err(Error::expected_input_found(
                         rhs.span,
                         std::iter::once(Some(format!("{}", arg_kind))),
                         Some(format!("{}", rhs.kind)),
                     ));
                 }
-                apply_top_type(lhs.as_ref(), &rhs.ty)
+                (ret_kind, apply_top_type(lhs.as_ref(), &rhs.ty))
             } else {
                 return Err(Error::expected_input_found(
                     lhs.span,
@@ -211,29 +246,33 @@ pub fn compile_type(context: &Context, ty: &Spanned<lang::Type>) -> Result<TypeE
             }
         }
         lang::Type::Exists(ident, bound, body) => {
-            // TODO: check/return kind
             let bound: Rc<_> = compile_type_bound(context, bound.value())?.into();
-            Type::Exists {
-                bound: bound.clone(),
-                body: compile_type(&context.type_pushed(ident.as_ref().clone(), bound), body)?
-                    .ty
-                    .into(),
-            }
+            (
+                Kind::Star,
+                Type::Exists {
+                    bound: bound.clone(),
+                    body: compile_type(&context.type_pushed(ident.as_ref().clone(), bound), body)?
+                        .check_star()?
+                        .into(),
+                },
+            )
         }
         lang::Type::Forall(ident, bound, body) => {
-            // TODO: check/return kind
             let bound: Rc<_> = compile_type_bound(context, bound.value())?.into();
-            Type::Forall {
-                bound: bound.clone(),
-                body: compile_type(&context.type_pushed(ident.as_ref().clone(), bound), body)?
-                    .ty
-                    .into(),
-            }
+            (
+                Kind::Star,
+                Type::Forall {
+                    bound: bound.clone(),
+                    body: compile_type(&context.type_pushed(ident.as_ref().clone(), bound), body)?
+                        .check_star()?
+                        .into(),
+                },
+            )
         }
     };
     Ok(TypeExtra {
         span: ty.span(),
-        kind: Kind::Star,
+        kind,
         ty: value,
     })
 }

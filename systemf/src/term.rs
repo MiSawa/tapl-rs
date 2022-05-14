@@ -63,9 +63,18 @@ pub enum Bound {
     #[display(fmt = "")]
     Unbounded,
     #[display(fmt = "<: {_0}")]
-    Type(Type),
+    Type(Rc<Type>),
     #[display(fmt = ":: {_0}")]
-    Kind(Kind),
+    Kind(Rc<Kind>),
+}
+
+impl Bound {
+    pub fn get_kind(&self) -> &Kind {
+        match self {
+            Bound::Unbounded | Bound::Type(_) => &Kind::Star,
+            Bound::Kind(k) => k,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, derive_more::Display, Debug)]
